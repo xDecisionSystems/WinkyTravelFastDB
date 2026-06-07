@@ -59,6 +59,34 @@ Client never receives or uses the Google Places API key directly.
 | GET | `/api/users/{user_id}` | Fetch user record |
 | POST | `/api/places/autocomplete` | Google Places autocomplete proxy |
 | POST | `/api/places/details` | Google place details proxy |
+| POST | `/api/trips` | Create trip |
+| GET | `/api/trips?owner_user_id=` | List trips for an owner |
+| GET | `/api/trips/{trip_id}` | Fetch trip |
+| PATCH | `/api/trips/{trip_id}` | Update trip fields |
+| DELETE | `/api/trips/{trip_id}` | Delete trip (cascades to dependent rows) |
+| POST | `/api/trips/{trip_id}/shares` | Create or replace a trip share (upsert by `shared_with_user_id`) |
+| GET | `/api/trips/{trip_id}/shares` | List shares for a trip |
+| PATCH | `/api/trips/{trip_id}/shares/{share_id}` | Update share permissions |
+| DELETE | `/api/trips/{trip_id}/shares/{share_id}` | Remove a trip share |
+| POST/GET/PATCH/DELETE | `/api/activities[/{activity_id}]` | Activity CRUD (`GET` list filters by `user_id`, optional `trip_id`) |
+| POST/GET/PATCH/DELETE | `/api/travels[/{travel_id}]` | Travel segment CRUD |
+| POST/GET/PATCH/DELETE | `/api/hotels[/{hotel_id}]` | Hotel stay CRUD |
+| POST/GET/PATCH/DELETE | `/api/transits[/{transit_id}]` | Local transit CRUD |
+| POST/GET/PATCH/DELETE | `/api/schedule-items[/{item_id}]` | Schedule item CRUD (`GET` list requires `trip_id`, optional `day_date`) |
+| POST/GET/PATCH/DELETE | `/api/settings/custom-activity-types[/{type_id}]` | Custom activity type CRUD |
+| PUT/GET/DELETE | `/api/settings/icon-overrides[/{activity_type_id}]` | Icon override upsert/list/delete (keyed by `user_id` + `activity_type_id`) |
+
+### Trip-domain CRUD conventions
+
+- All list endpoints require an owning identifier (`user_id` or `owner_user_id`) as a
+  query parameter; activities/travels/hotels/transits accept an optional `trip_id`
+  filter, and schedule items require `trip_id` (with optional `day_date`).
+- `PATCH` requests use partial-update semantics (`exclude_unset`): omitted fields are
+  left unchanged.
+- `attachments` fields are passed through as JSON arrays and stored as `jsonb`.
+- Every route enforces the same per-second/hour/day rate limiting as existing endpoints.
+- Records reference `owner_user_id`/`user_id` via foreign keys to `users`; creating a
+  trip or domain record for an unknown user returns a database foreign-key error.
 
 ## 5. Data Model
 

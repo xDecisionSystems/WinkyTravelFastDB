@@ -554,6 +554,1029 @@ async def insert_rate_limit_event(
         await _maybe_prune_old_rate_limit_events(conn)
 
 
+def _row_to_dict(row: asyncpg.Record | None, *, json_fields: tuple[str, ...] = ()) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    doc = dict(row)
+    for field in json_fields:
+        if isinstance(doc.get(field), str):
+            doc[field] = json.loads(doc[field])
+    return doc
+
+
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# Trips
+# ---------------------------------------------------------------------------
+
+
+async def create_trip(
+    *,
+    owner_user_id: str,
+    vacation_name: str,
+    location: str,
+    start_date: Any,
+    end_date: Any,
+) -> dict[str, Any]:
+    now = utcnow()
+    trip_id = _new_id()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO trips (id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+            RETURNING id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            """,
+            trip_id,
+            owner_user_id,
+            vacation_name,
+            location,
+            start_date,
+            end_date,
+            now,
+        )
+    if row is None:
+        raise RuntimeError("Failed to create trip")
+    return dict(row)
+
+
+async def list_trips(owner_user_id: str) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            FROM trips
+            WHERE owner_user_id = $1
+            ORDER BY start_date ASC
+            """,
+            owner_user_id,
+        )
+    return [dict(row) for row in rows]
+
+
+async def get_trip(trip_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            FROM trips
+            WHERE id = $1
+            """,
+            trip_id,
+        )
+    return dict(row) if row is not None else None
+
+
+async def update_trip(trip_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_trip(trip_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for index, (column, value) in enumerate(fields.items(), start=1):
+        assignments.append(f"{column} = ${index}")
+        values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(trip_id)
+    trip_id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE trips
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${trip_id_index}
+            RETURNING id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            """,
+            *values,
+        )
+    return dict(row) if row is not None else None
+
+
+async def delete_trip(trip_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM trips WHERE id = $1", trip_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Trip shares
+# ---------------------------------------------------------------------------
+
+
+async def create_trip_share(
+    *,
+    trip_id: str,
+    shared_with_user_id: str,
+    shared_by_user_id: str,
+    can_view: bool,
+    can_add: bool,
+    can_delete: bool,
+    can_edit: bool,
+    can_owner: bool,
+) -> dict[str, Any]:
+    now = utcnow()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO trip_shares (
+                trip_id, shared_with_user_id, shared_by_user_id,
+                can_view, can_add, can_delete, can_edit, can_owner,
+                created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            ON CONFLICT (trip_id, shared_with_user_id)
+            DO UPDATE
+            SET shared_by_user_id = EXCLUDED.shared_by_user_id,
+                can_view = EXCLUDED.can_view,
+                can_add = EXCLUDED.can_add,
+                can_delete = EXCLUDED.can_delete,
+                can_edit = EXCLUDED.can_edit,
+                can_owner = EXCLUDED.can_owner,
+                updated_at = EXCLUDED.updated_at
+            RETURNING id, trip_id, shared_with_user_id, shared_by_user_id,
+                      can_view, can_add, can_delete, can_edit, can_owner,
+                      created_at, updated_at
+            """,
+            trip_id,
+            shared_with_user_id,
+            shared_by_user_id,
+            can_view,
+            can_add,
+            can_delete,
+            can_edit,
+            can_owner,
+            now,
+        )
+    if row is None:
+        raise RuntimeError("Failed to create trip share")
+    return dict(row)
+
+
+async def list_trip_shares(trip_id: str) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, trip_id, shared_with_user_id, shared_by_user_id,
+                   can_view, can_add, can_delete, can_edit, can_owner,
+                   created_at, updated_at
+            FROM trip_shares
+            WHERE trip_id = $1
+            ORDER BY created_at ASC
+            """,
+            trip_id,
+        )
+    return [dict(row) for row in rows]
+
+
+async def update_trip_share(share_id: int, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        pool = _pool_or_raise()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, trip_id, shared_with_user_id, shared_by_user_id,
+                       can_view, can_add, can_delete, can_edit, can_owner,
+                       created_at, updated_at
+                FROM trip_shares WHERE id = $1
+                """,
+                share_id,
+            )
+        return dict(row) if row is not None else None
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for index, (column, value) in enumerate(fields.items(), start=1):
+        assignments.append(f"{column} = ${index}")
+        values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(share_id)
+    share_id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE trip_shares
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${share_id_index}
+            RETURNING id, trip_id, shared_with_user_id, shared_by_user_id,
+                      can_view, can_add, can_delete, can_edit, can_owner,
+                      created_at, updated_at
+            """,
+            *values,
+        )
+    return dict(row) if row is not None else None
+
+
+async def delete_trip_share(share_id: int) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM trip_shares WHERE id = $1", share_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Activities
+# ---------------------------------------------------------------------------
+
+_ACTIVITY_COLUMNS = (
+    "id", "user_id", "trip_id", "name", "type", "notes",
+    "scheduled_day", "scheduled_time", "time_of_day", "attachments",
+    "custom_type_name", "custom_icon", "created_at", "updated_at",
+)
+
+
+async def create_activity(*, user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    attachments = json.dumps(fields.get("attachments", []))
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO activities (
+                id, user_id, trip_id, name, type, notes,
+                scheduled_day, scheduled_time, time_of_day, attachments,
+                custom_type_name, custom_icon, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13)
+            RETURNING id, user_id, trip_id, name, type, notes,
+                      scheduled_day, scheduled_time, time_of_day, attachments,
+                      custom_type_name, custom_icon, created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            fields.get("trip_id"),
+            fields["name"],
+            fields["type"],
+            fields.get("notes", ""),
+            fields.get("scheduled_day"),
+            fields.get("scheduled_time"),
+            fields.get("time_of_day"),
+            attachments,
+            fields.get("custom_type_name"),
+            fields.get("custom_icon"),
+            now,
+        )
+    doc = _row_to_dict(row, json_fields=("attachments",))
+    if doc is None:
+        raise RuntimeError("Failed to create activity")
+    return doc
+
+
+async def list_activities(*, user_id: str, trip_id: str | None = None) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        if trip_id is not None:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, name, type, notes,
+                       scheduled_day, scheduled_time, time_of_day, attachments,
+                       custom_type_name, custom_icon, created_at, updated_at
+                FROM activities
+                WHERE user_id = $1 AND trip_id = $2
+                ORDER BY created_at ASC
+                """,
+                user_id,
+                trip_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, name, type, notes,
+                       scheduled_day, scheduled_time, time_of_day, attachments,
+                       custom_type_name, custom_icon, created_at, updated_at
+                FROM activities
+                WHERE user_id = $1
+                ORDER BY created_at ASC
+                """,
+                user_id,
+            )
+    docs = [_row_to_dict(row, json_fields=("attachments",)) for row in rows]
+    return [doc for doc in docs if doc is not None]
+
+
+async def get_activity(activity_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, trip_id, name, type, notes,
+                   scheduled_day, scheduled_time, time_of_day, attachments,
+                   custom_type_name, custom_icon, created_at, updated_at
+            FROM activities
+            WHERE id = $1
+            """,
+            activity_id,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def update_activity(activity_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_activity(activity_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for column, value in fields.items():
+        if column == "attachments":
+            index = len(values) + 1
+            assignments.append(f"attachments = ${index}::jsonb")
+            values.append(json.dumps(value))
+        else:
+            index = len(values) + 1
+            assignments.append(f"{column} = ${index}")
+            values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(activity_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE activities
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, trip_id, name, type, notes,
+                      scheduled_day, scheduled_time, time_of_day, attachments,
+                      custom_type_name, custom_icon, created_at, updated_at
+            """,
+            *values,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def delete_activity(activity_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM activities WHERE id = $1", activity_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Travels
+# ---------------------------------------------------------------------------
+
+
+async def create_travel(*, user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    attachments = json.dumps(fields.get("attachments", []))
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO travels (
+                id, user_id, trip_id, type, departure, arrival, date, time,
+                confirmation_number, notes, attachments, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $12)
+            RETURNING id, user_id, trip_id, type, departure, arrival, date, time,
+                      confirmation_number, notes, attachments, created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            fields.get("trip_id"),
+            fields["type"],
+            fields["departure"],
+            fields["arrival"],
+            fields["date"],
+            fields["time"],
+            fields.get("confirmation_number", ""),
+            fields.get("notes", ""),
+            attachments,
+            now,
+        )
+    doc = _row_to_dict(row, json_fields=("attachments",))
+    if doc is None:
+        raise RuntimeError("Failed to create travel")
+    return doc
+
+
+async def list_travels(*, user_id: str, trip_id: str | None = None) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        if trip_id is not None:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, type, departure, arrival, date, time,
+                       confirmation_number, notes, attachments, created_at, updated_at
+                FROM travels
+                WHERE user_id = $1 AND trip_id = $2
+                ORDER BY date ASC, time ASC
+                """,
+                user_id,
+                trip_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, type, departure, arrival, date, time,
+                       confirmation_number, notes, attachments, created_at, updated_at
+                FROM travels
+                WHERE user_id = $1
+                ORDER BY date ASC, time ASC
+                """,
+                user_id,
+            )
+    docs = [_row_to_dict(row, json_fields=("attachments",)) for row in rows]
+    return [doc for doc in docs if doc is not None]
+
+
+async def get_travel(travel_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, trip_id, type, departure, arrival, date, time,
+                   confirmation_number, notes, attachments, created_at, updated_at
+            FROM travels
+            WHERE id = $1
+            """,
+            travel_id,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def update_travel(travel_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_travel(travel_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for column, value in fields.items():
+        if column == "attachments":
+            index = len(values) + 1
+            assignments.append(f"attachments = ${index}::jsonb")
+            values.append(json.dumps(value))
+        else:
+            index = len(values) + 1
+            assignments.append(f"{column} = ${index}")
+            values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(travel_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE travels
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, trip_id, type, departure, arrival, date, time,
+                      confirmation_number, notes, attachments, created_at, updated_at
+            """,
+            *values,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def delete_travel(travel_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM travels WHERE id = $1", travel_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Hotels
+# ---------------------------------------------------------------------------
+
+
+async def create_hotel(*, user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    attachments = json.dumps(fields.get("attachments", []))
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO hotels (
+                id, user_id, trip_id, name, address, check_in, check_out,
+                confirmation_number, notes, attachments, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11)
+            RETURNING id, user_id, trip_id, name, address, check_in, check_out,
+                      confirmation_number, notes, attachments, created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            fields.get("trip_id"),
+            fields["name"],
+            fields["address"],
+            fields["check_in"],
+            fields["check_out"],
+            fields.get("confirmation_number", ""),
+            fields.get("notes", ""),
+            attachments,
+            now,
+        )
+    doc = _row_to_dict(row, json_fields=("attachments",))
+    if doc is None:
+        raise RuntimeError("Failed to create hotel")
+    return doc
+
+
+async def list_hotels(*, user_id: str, trip_id: str | None = None) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        if trip_id is not None:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, name, address, check_in, check_out,
+                       confirmation_number, notes, attachments, created_at, updated_at
+                FROM hotels
+                WHERE user_id = $1 AND trip_id = $2
+                ORDER BY check_in ASC
+                """,
+                user_id,
+                trip_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, name, address, check_in, check_out,
+                       confirmation_number, notes, attachments, created_at, updated_at
+                FROM hotels
+                WHERE user_id = $1
+                ORDER BY check_in ASC
+                """,
+                user_id,
+            )
+    docs = [_row_to_dict(row, json_fields=("attachments",)) for row in rows]
+    return [doc for doc in docs if doc is not None]
+
+
+async def get_hotel(hotel_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, trip_id, name, address, check_in, check_out,
+                   confirmation_number, notes, attachments, created_at, updated_at
+            FROM hotels
+            WHERE id = $1
+            """,
+            hotel_id,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def update_hotel(hotel_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_hotel(hotel_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for column, value in fields.items():
+        if column == "attachments":
+            index = len(values) + 1
+            assignments.append(f"attachments = ${index}::jsonb")
+            values.append(json.dumps(value))
+        else:
+            index = len(values) + 1
+            assignments.append(f"{column} = ${index}")
+            values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(hotel_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE hotels
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, trip_id, name, address, check_in, check_out,
+                      confirmation_number, notes, attachments, created_at, updated_at
+            """,
+            *values,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def delete_hotel(hotel_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM hotels WHERE id = $1", hotel_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Transits
+# ---------------------------------------------------------------------------
+
+
+async def create_transit(*, user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    attachments = json.dumps(fields.get("attachments", []))
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO transits (
+                id, user_id, trip_id, type, from_location, to_location,
+                notes, attachments, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $9)
+            RETURNING id, user_id, trip_id, type, from_location, to_location,
+                      notes, attachments, created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            fields.get("trip_id"),
+            fields["type"],
+            fields.get("from_location", ""),
+            fields.get("to_location", ""),
+            fields.get("notes", ""),
+            attachments,
+            now,
+        )
+    doc = _row_to_dict(row, json_fields=("attachments",))
+    if doc is None:
+        raise RuntimeError("Failed to create transit")
+    return doc
+
+
+async def list_transits(*, user_id: str, trip_id: str | None = None) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        if trip_id is not None:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, type, from_location, to_location,
+                       notes, attachments, created_at, updated_at
+                FROM transits
+                WHERE user_id = $1 AND trip_id = $2
+                ORDER BY created_at ASC
+                """,
+                user_id,
+                trip_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, type, from_location, to_location,
+                       notes, attachments, created_at, updated_at
+                FROM transits
+                WHERE user_id = $1
+                ORDER BY created_at ASC
+                """,
+                user_id,
+            )
+    docs = [_row_to_dict(row, json_fields=("attachments",)) for row in rows]
+    return [doc for doc in docs if doc is not None]
+
+
+async def get_transit(transit_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, trip_id, type, from_location, to_location,
+                   notes, attachments, created_at, updated_at
+            FROM transits
+            WHERE id = $1
+            """,
+            transit_id,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def update_transit(transit_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_transit(transit_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for column, value in fields.items():
+        if column == "attachments":
+            index = len(values) + 1
+            assignments.append(f"attachments = ${index}::jsonb")
+            values.append(json.dumps(value))
+        else:
+            index = len(values) + 1
+            assignments.append(f"{column} = ${index}")
+            values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(transit_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE transits
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, trip_id, type, from_location, to_location,
+                      notes, attachments, created_at, updated_at
+            """,
+            *values,
+        )
+    return _row_to_dict(row, json_fields=("attachments",))
+
+
+async def delete_transit(transit_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM transits WHERE id = $1", transit_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Schedule items
+# ---------------------------------------------------------------------------
+
+
+async def create_schedule_item(*, user_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO schedule_items (
+                id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            RETURNING id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                      created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            fields["trip_id"],
+            fields["day_date"],
+            fields.get("display_order", 0),
+            fields["item_type"],
+            fields["item_id"],
+            now,
+        )
+    if row is None:
+        raise RuntimeError("Failed to create schedule item")
+    return dict(row)
+
+
+async def list_schedule_items(*, trip_id: str, day_date: Any | None = None) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        if day_date is not None:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                       created_at, updated_at
+                FROM schedule_items
+                WHERE trip_id = $1 AND day_date = $2
+                ORDER BY display_order ASC
+                """,
+                trip_id,
+                day_date,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                       created_at, updated_at
+                FROM schedule_items
+                WHERE trip_id = $1
+                ORDER BY day_date ASC, display_order ASC
+                """,
+                trip_id,
+            )
+    return [dict(row) for row in rows]
+
+
+async def get_schedule_item(item_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                   created_at, updated_at
+            FROM schedule_items
+            WHERE id = $1
+            """,
+            item_id,
+        )
+    return dict(row) if row is not None else None
+
+
+async def update_schedule_item(item_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return await get_schedule_item(item_id)
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for index, (column, value) in enumerate(fields.items(), start=1):
+        assignments.append(f"{column} = ${index}")
+        values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(item_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE schedule_items
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, trip_id, day_date, display_order, item_type, item_id,
+                      created_at, updated_at
+            """,
+            *values,
+        )
+    return dict(row) if row is not None else None
+
+
+async def delete_schedule_item(item_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM schedule_items WHERE id = $1", item_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Custom activity types
+# ---------------------------------------------------------------------------
+
+
+async def create_custom_activity_type(
+    *, user_id: str, name: str, icon: str, is_default: bool
+) -> dict[str, Any]:
+    now = utcnow()
+    record_id = _new_id()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO custom_activity_types (id, user_id, name, icon, is_default, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            RETURNING id, user_id, name, icon, is_default, created_at, updated_at
+            """,
+            record_id,
+            user_id,
+            name,
+            icon,
+            is_default,
+            now,
+        )
+    if row is None:
+        raise RuntimeError("Failed to create custom activity type")
+    return dict(row)
+
+
+async def list_custom_activity_types(user_id: str) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, user_id, name, icon, is_default, created_at, updated_at
+            FROM custom_activity_types
+            WHERE user_id = $1
+            ORDER BY created_at ASC
+            """,
+            user_id,
+        )
+    return [dict(row) for row in rows]
+
+
+async def update_custom_activity_type(type_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        pool = _pool_or_raise()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, user_id, name, icon, is_default, created_at, updated_at "
+                "FROM custom_activity_types WHERE id = $1",
+                type_id,
+            )
+        return dict(row) if row is not None else None
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for index, (column, value) in enumerate(fields.items(), start=1):
+        assignments.append(f"{column} = ${index}")
+        values.append(value)
+
+    now = utcnow()
+    values.append(now)
+    updated_at_index = len(values)
+    values.append(type_id)
+    id_index = len(values)
+
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE custom_activity_types
+            SET {', '.join(assignments)}, updated_at = ${updated_at_index}
+            WHERE id = ${id_index}
+            RETURNING id, user_id, name, icon, is_default, created_at, updated_at
+            """,
+            *values,
+        )
+    return dict(row) if row is not None else None
+
+
+async def delete_custom_activity_type(type_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM custom_activity_types WHERE id = $1", type_id)
+    return result.endswith(" 1")
+
+
+# ---------------------------------------------------------------------------
+# Activity icon overrides
+# ---------------------------------------------------------------------------
+
+
+async def upsert_activity_icon_override(*, user_id: str, activity_type_id: str, icon: str) -> dict[str, Any]:
+    now = utcnow()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO activity_icon_overrides (user_id, activity_type_id, icon, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (user_id, activity_type_id)
+            DO UPDATE
+            SET icon = EXCLUDED.icon,
+                updated_at = EXCLUDED.updated_at
+            RETURNING user_id, activity_type_id, icon, created_at, updated_at
+            """,
+            user_id,
+            activity_type_id,
+            icon,
+            now,
+        )
+    if row is None:
+        raise RuntimeError("Failed to upsert activity icon override")
+    return dict(row)
+
+
+async def list_activity_icon_overrides(user_id: str) -> list[dict[str, Any]]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT user_id, activity_type_id, icon, created_at, updated_at
+            FROM activity_icon_overrides
+            WHERE user_id = $1
+            ORDER BY activity_type_id ASC
+            """,
+            user_id,
+        )
+    return [dict(row) for row in rows]
+
+
+async def delete_activity_icon_override(*, user_id: str, activity_type_id: str) -> bool:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM activity_icon_overrides WHERE user_id = $1 AND activity_type_id = $2",
+            user_id,
+            activity_type_id,
+        )
+    return result.endswith(" 1")
+
+
 async def delete_all_records() -> dict[str, Any]:
     tables = (
         "trip_shares",

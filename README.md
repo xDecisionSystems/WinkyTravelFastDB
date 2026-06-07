@@ -5,8 +5,8 @@ FastAPI + PostgreSQL backend for Winky Travel.
 ## What this service does
 
 - Persists app users in PostgreSQL.
-- Includes PostgreSQL domain tables aligned to WinkyTravelDev entities (`trips`, `activities`, `travels`, `hotels`, `transits`, `schedule_items`).
-- Includes trip sharing schema with per-user permissions (`owner`, `view`, `add`, `delete`, `edit`).
+- Provides full CRUD REST endpoints for WinkyTravelDev domain entities: `trips`, `activities`, `travels`, `hotels`, `transits`, `schedule_items`, plus trip sharing and per-user settings (`custom_activity_types`, `activity_icon_overrides`).
+- Includes trip sharing with per-user permissions (`owner`, `view`, `add`, `delete`, `edit`).
 - Proxies Google Places autocomplete/details requests so API keys remain server-side.
 - Logs per-user Google Places usage events for tracking and analytics.
 - Applies rate limiting on all endpoints (per second, per hour, per day) by client IP and user ID.
@@ -69,6 +69,24 @@ Legacy `DATABASE_URL` is still accepted for backward compatibility.
 - `POST /api/places/details`
 - `GET /api/dev/logs?path=<relative-log-path>&lines=200` (dev-only, master key required)
 - `POST /api/dev/admin/delete-all-records?confirm=DELETE_ALL_RECORDS` (dev-only, destructive)
+
+### Trip-planning domain CRUD
+
+Each resource follows the same REST shape: `POST` (create), `GET` (list, filtered by
+`user_id`/`owner_user_id` and optionally `trip_id`), `GET /{id}` (read one),
+`PATCH /{id}` (partial update), `DELETE /{id}` (delete). All are rate limited like
+other endpoints.
+
+- `/api/trips` and `/api/trips/{trip_id}/shares` (trip sharing sub-resource)
+- `/api/activities`
+- `/api/travels`
+- `/api/hotels`
+- `/api/transits`
+- `/api/schedule-items` (list requires `trip_id`, optional `day_date` filter)
+- `/api/settings/custom-activity-types`
+- `/api/settings/icon-overrides` (`PUT` to upsert, `GET`/`DELETE` keyed by `user_id` + `activity_type_id`)
+
+See `ARCHITECTURE.md` for the full endpoint map and request/response contracts.
 
 ## Dev log endpoint (for coding-agent testing)
 
