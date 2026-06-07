@@ -45,6 +45,19 @@ Configured via environment variables:
 
 Rate-limit events are stored in PostgreSQL `rate_limit_events` and include allowed and blocked attempts.
 
+## Database configuration
+
+Configured via environment variables:
+
+- `DB_HOST` (required)
+- `DB_PORT` (default `5432`)
+- `DB_NAME` (required)
+- `DB_USER` (required)
+- `DB_PASSWORD` (optional but recommended)
+- `DB_SSLMODE` (default `disable`)
+
+Legacy `DATABASE_URL` is still accepted for backward compatibility.
+
 ## Core routes
 
 - `GET /health`

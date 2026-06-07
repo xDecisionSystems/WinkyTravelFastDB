@@ -61,7 +61,12 @@ if "asyncpg" not in sys.modules:
         sys.modules["asyncpg"] = asyncpg_stub
 
 # Ensure required settings vars exist before importing app modules.
-os.environ.setdefault("DATABASE_URL", "postgresql://winky:test@127.0.0.1:5432/winky_travel_test")
+os.environ.setdefault("DB_HOST", "127.0.0.1")
+os.environ.setdefault("DB_PORT", "5432")
+os.environ.setdefault("DB_NAME", "winky_travel_test")
+os.environ.setdefault("DB_USER", "winky")
+os.environ.setdefault("DB_PASSWORD", "test")
+os.environ.setdefault("DB_SSLMODE", "disable")
 
 from services.rate_limit import enforce_rate_limit
 

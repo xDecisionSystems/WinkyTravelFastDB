@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 
@@ -50,8 +51,34 @@ def _optional_positive_int(name: str, default: str) -> int:
     return value
 
 
+def _database_url() -> str:
+    # Backward compatibility for older deployments.
+    explicit_url = _optional("DATABASE_URL", "")
+    if explicit_url:
+        return explicit_url
+
+    db_host = _required("DB_HOST")
+    db_port = _optional_positive_int("DB_PORT", "5432")
+    db_name = _required("DB_NAME")
+    db_user = _required("DB_USER")
+    db_password = _optional("DB_PASSWORD", "")
+    db_sslmode = _optional("DB_SSLMODE", "disable")
+
+    encoded_user = quote(db_user, safe="")
+    encoded_db_name = quote(db_name, safe="")
+    if db_password:
+        credentials = f"{encoded_user}:{quote(db_password, safe='')}"
+    else:
+        credentials = encoded_user
+
+    return (
+        f"postgresql://{credentials}@{db_host}:{db_port}/{encoded_db_name}"
+        f"?sslmode={quote(db_sslmode, safe='')}"
+    )
+
+
 settings = Settings(
-    database_url=_required("DATABASE_URL"),
+    database_url=_database_url(),
     api_host=_optional("API_HOST", "0.0.0.0"),
     api_port=int(_optional("API_PORT", "8000")),
     google_maps_api_key=_optional("GOOGLE_MAPS_API_KEY", ""),

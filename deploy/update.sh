@@ -27,17 +27,44 @@ parse_database_url() {
   fi
 }
 
+get_env_value() {
+  local env_file="$1"
+  local key="$2"
+  local raw
+  raw="$(grep -E "^${key}=" "${env_file}" | tail -n1 | cut -d= -f2- || true)"
+  raw="${raw%%$'\r'}"
+  if [[ "${raw}" == \"*\" && "${raw}" == *\" ]]; then
+    raw="${raw:1:${#raw}-2}"
+  elif [[ "${raw}" == \'*\' ]]; then
+    raw="${raw:1:${#raw}-2}"
+  fi
+  echo "${raw}"
+}
+
+load_database_identity_from_env() {
+  local env_file="$1"
+  DB_USER="$(get_env_value "${env_file}" "DB_USER")"
+  DB_NAME="$(get_env_value "${env_file}" "DB_NAME")"
+
+  if [[ -n "${DB_USER}" && -n "${DB_NAME}" ]]; then
+    return 0
+  fi
+
+  # Backward compatibility for environments still using DATABASE_URL.
+  local database_url
+  database_url="$(get_env_value "${env_file}" "DATABASE_URL")"
+  [[ -n "${database_url}" ]] || die "Missing DB_USER/DB_NAME (or DATABASE_URL) in ${env_file}"
+  parse_database_url "${database_url}"
+}
+
 maybe_recreate_database() {
   local env_file="${INSTALL_DIR}/.env"
-  local database_url
 
   if [[ ! -f "${env_file}" ]]; then
     die "Environment file not found: ${env_file}"
   fi
 
-  database_url="$(grep -E '^DATABASE_URL=' "${env_file}" | tail -n1 | cut -d= -f2- || true)"
-  [[ -n "${database_url}" ]] || die "DATABASE_URL is missing in ${env_file}"
-  parse_database_url "${database_url}"
+  load_database_identity_from_env "${env_file}"
 
   if [[ -t 0 ]]; then
     if ! confirm "Destroy and recreate SQL database '${DB_NAME}' (owner '${DB_USER}')?"; then

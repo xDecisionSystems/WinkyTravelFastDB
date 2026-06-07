@@ -205,7 +205,13 @@ Loaded from `.env` via `config/settings.py`.
 
 | Variable | Required | Default | Description |
 |---------|----------|---------|-------------|
-| `DATABASE_URL` | yes | none | PostgreSQL connection URI |
+| `DB_HOST` | yes | none | PostgreSQL host |
+| `DB_PORT` | no | `5432` | PostgreSQL port |
+| `DB_NAME` | yes | none | PostgreSQL database name |
+| `DB_USER` | yes | none | PostgreSQL database user |
+| `DB_PASSWORD` | no | empty | PostgreSQL database password |
+| `DB_SSLMODE` | no | `disable` | PostgreSQL SSL mode |
+| `DATABASE_URL` | legacy | empty | Backward-compatible URI override |
 | `API_HOST` | no | `0.0.0.0` | API bind host |
 | `API_PORT` | no | `8000` | API bind port |
 | `GOOGLE_MAPS_API_KEY` | recommended | empty | Server-side Places key |

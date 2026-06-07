@@ -13,7 +13,7 @@ Source of truth in code:
 ## Database
 
 - Engine: PostgreSQL
-- Connection: `DATABASE_URL`
+- Connection: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE` (legacy `DATABASE_URL` also supported)
 
 ## Tables
 
