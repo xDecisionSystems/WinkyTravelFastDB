@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -442,6 +443,30 @@ async def get_user(user_id: str) -> dict[str, Any] | None:
             user_id,
         )
     return dict(row) if row is not None else None
+
+
+async def create_user(email: str | None, name: str | None) -> dict[str, Any]:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        for _ in range(5):
+            generated_user_id = str(uuid.uuid4())
+            now = utcnow()
+            row = await conn.fetchrow(
+                """
+                INSERT INTO users (user_id, email, name, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $4)
+                ON CONFLICT (user_id) DO NOTHING
+                RETURNING user_id, email, name, created_at, updated_at
+                """,
+                generated_user_id,
+                email,
+                name,
+                now,
+            )
+            if row is not None:
+                return dict(row)
+
+    raise RuntimeError("Failed to create user after retries")
 
 
 async def insert_usage_log(

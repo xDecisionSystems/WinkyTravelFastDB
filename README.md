@@ -62,6 +62,7 @@ Legacy `DATABASE_URL` is still accepted for backward compatibility.
 
 - `GET /health`
 - `GET /llms.txt` (`GET /llm.txt` alias)
+- `POST /api/users/create`
 - `POST /api/users/upsert`
 - `GET /api/users/{user_id}`
 - `POST /api/places/autocomplete`

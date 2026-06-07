@@ -5,6 +5,7 @@ from services.postgres import (  # noqa: F401
     close,
     connect,
     count_rate_limit_events,
+    create_user,
     delete_all_records,
     get_user,
     insert_rate_limit_event,

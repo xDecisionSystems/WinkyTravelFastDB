@@ -16,6 +16,11 @@ class UserUpsertRequest(BaseModel):
     name: str | None = Field(default=None, max_length=160)
 
 
+class UserCreateRequest(BaseModel):
+    email: str | None = Field(default=None, max_length=320)
+    name: str | None = Field(default=None, max_length=160)
+
+
 class UserRecord(BaseModel):
     user_id: str
     email: str | None = None

@@ -42,11 +42,19 @@ Client never receives or uses the Google Places API key directly.
 2. Upsert user record by `user_id`.
 3. Set `created_at` on insert and `updated_at` on every write.
 
+### `POST /api/users/create`
+
+1. Validate optional profile payload (`email`, `name`).
+2. Generate a backend `user_id` (UUID).
+3. Insert user record with generated ID and timestamps.
+4. Return created user record.
+
 ## 4. Endpoint Map
 
 | Method | Path | Purpose |
 |-------|------|---------|
 | GET | `/health` | Service health/status |
+| POST | `/api/users/create` | Create user with backend-generated `user_id` |
 | POST | `/api/users/upsert` | Create/update user record |
 | GET | `/api/users/{user_id}` | Fetch user record |
 | POST | `/api/places/autocomplete` | Google Places autocomplete proxy |
