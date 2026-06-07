@@ -10,6 +10,50 @@ SERVICE_NAME="winky-travel-fastdb"
 log() { echo "[update] $*"; }
 die() { echo "[update] ERROR: $*" >&2; exit 1; }
 
+confirm() {
+  local prompt="$1"
+  local reply
+  read -r -p "${prompt} [Y/n]: " reply
+  [[ "${reply}" =~ ^([Yy]([Ee][Ss])?)?$ ]]
+}
+
+parse_database_url() {
+  local database_url="$1"
+  DB_USER="$(echo "${database_url}" | sed -E 's#^[a-zA-Z0-9+.-]+://([^:/@]+)(:[^@]*)?@[^/]+/([^?]+).*$#\1#')"
+  DB_NAME="$(echo "${database_url}" | sed -E 's#^[a-zA-Z0-9+.-]+://([^:/@]+)(:[^@]*)?@[^/]+/([^?]+).*$#\3#')"
+
+  if [[ -z "${DB_USER}" || -z "${DB_NAME}" || "${DB_USER}" == "${database_url}" || "${DB_NAME}" == "${database_url}" ]]; then
+    die "Could not parse DATABASE_URL. Expected format: postgresql://user:pass@host:5432/dbname"
+  fi
+}
+
+maybe_recreate_database() {
+  local env_file="${INSTALL_DIR}/.env"
+  local database_url
+
+  if [[ ! -f "${env_file}" ]]; then
+    die "Environment file not found: ${env_file}"
+  fi
+
+  database_url="$(grep -E '^DATABASE_URL=' "${env_file}" | tail -n1 | cut -d= -f2- || true)"
+  [[ -n "${database_url}" ]] || die "DATABASE_URL is missing in ${env_file}"
+  parse_database_url "${database_url}"
+
+  if [[ -t 0 ]]; then
+    if ! confirm "Destroy and recreate SQL database '${DB_NAME}' (owner '${DB_USER}')?"; then
+      log "Keeping existing SQL database."
+      return 0
+    fi
+  else
+    log "Non-interactive shell detected; skipping SQL database recreation prompt."
+    return 0
+  fi
+
+  log "Recreating SQL database '${DB_NAME}' owned by '${DB_USER}' ..."
+  runuser -u postgres -- dropdb --if-exists "${DB_NAME}"
+  runuser -u postgres -- createdb --owner="${DB_USER}" "${DB_NAME}"
+}
+
 if [[ ! -d "${INSTALL_DIR}/.git" ]]; then
   die "Install directory not found: ${INSTALL_DIR}"
 fi
@@ -22,6 +66,8 @@ git -C "${INSTALL_DIR}" pull --ff-only
 log "Installing Python dependencies ..."
 "${VENV_DIR}/bin/pip" install --upgrade pip
 "${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
+
+maybe_recreate_database
 
 log "Reloading systemd daemon ..."
 systemctl daemon-reload
