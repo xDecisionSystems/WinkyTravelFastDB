@@ -9,6 +9,7 @@ Automated test scripts live in this folder.
   - Current coverage:
     - rate-limit service behavior (allow/block and anonymous endpoints)
     - dev log reader safety (path traversal blocking and tail limits)
+    - `llms.txt` manifest presence and required section checks
 
 - `./testing/smoke_api.sh`
   - Runs smoke checks against a running API instance.

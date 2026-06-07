@@ -44,6 +44,7 @@ Rate-limit events are stored in MongoDB `rate_limit_events` and include allowed 
 ## Core routes
 
 - `GET /health`
+- `GET /llms.txt` (`GET /llm.txt` alias)
 - `POST /api/users/upsert`
 - `GET /api/users/{user_id}`
 - `POST /api/places/autocomplete`

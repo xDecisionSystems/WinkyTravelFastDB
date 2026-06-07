@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.dev_logs import router as dev_logs_router
 from api.routes.health import router as health_router
+from api.routes.llms import router as llms_router
 from api.routes.places import router as places_router
 from api.routes.users import router as users_router
 from config.settings import settings
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(llms_router)
 app.include_router(users_router)
 app.include_router(places_router)
 app.include_router(dev_logs_router)

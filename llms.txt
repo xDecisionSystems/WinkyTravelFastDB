@@ -1,0 +1,22 @@
+# Winky Travel FastDB
+> FastAPI + MongoDB backend for Winky Travel. It stores users, proxies Google Places calls, tracks usage, and includes dev-only admin/testing endpoints.
+
+Use concise API requests with JSON bodies. For local development, copy `.env.dev` to `.env`, then run `uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload`.
+
+## Docs
+- [Project README](README.md): Setup, routes, and deployment notes.
+- [Architecture Notes](ARCHITECTURE.md): High-level project architecture.
+- [Testing README](testing/README.md): Automated test scripts and usage.
+
+## Core API
+- [Health Route](api/routes/health.py): `GET /health`
+- [User Routes](api/routes/users.py): `POST /api/users/upsert`, `GET /api/users/{user_id}`
+- [Places Routes](api/routes/places.py): `POST /api/places/autocomplete`, `POST /api/places/details`
+
+## Dev/Admin API
+- [Dev Routes](api/routes/dev_logs.py): `GET /api/dev/logs`, `POST /api/dev/admin/delete-all-records`
+- Dev routes are enabled only when `ENVIRONMENT` is `development`/`dev` and require `X-Master-API-Key`.
+
+## Config
+- [Environment Example](.env.example): Required and optional environment variables.
+- [Development Environment](.env.dev): Local defaults for development.
