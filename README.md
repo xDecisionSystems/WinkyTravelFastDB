@@ -49,6 +49,7 @@ Rate-limit events are stored in MongoDB `rate_limit_events` and include allowed 
 - `POST /api/places/autocomplete`
 - `POST /api/places/details`
 - `GET /api/dev/logs?path=<relative-log-path>&lines=200` (dev-only, master key required)
+- `POST /api/dev/admin/delete-all-records?confirm=DELETE_ALL_RECORDS` (dev-only, destructive)
 
 ## Dev log endpoint (for coding-agent testing)
 
@@ -65,6 +66,25 @@ Example:
 
 ```bash
 curl -sS "http://127.0.0.1:8000/api/dev/logs?path=syslog&lines=120" \
+  -H "X-Master-API-Key: change-this-dev-master-key"
+```
+
+## Dev admin endpoint: delete all records
+
+`POST /api/dev/admin/delete-all-records` deletes all documents from every non-system MongoDB collection.
+
+Safety controls:
+
+- Enabled only when `ENVIRONMENT` is `development` or `dev`.
+- Requires header `X-Master-API-Key: <DEV_MASTER_API_KEY>`.
+- Requires query param `confirm=DELETE_ALL_RECORDS`.
+- Subject to rate limiting.
+
+Example:
+
+```bash
+curl -sS -X POST \
+  "http://127.0.0.1:8000/api/dev/admin/delete-all-records?confirm=DELETE_ALL_RECORDS" \
   -H "X-Master-API-Key: change-this-dev-master-key"
 ```
 

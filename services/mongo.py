@@ -141,3 +141,24 @@ async def insert_rate_limit_event(
             "created_at": utcnow(),
         }
     )
+
+
+async def delete_all_records() -> dict[str, Any]:
+    database = db()
+    collection_names = await database.list_collection_names()
+
+    deleted_by_collection: dict[str, int] = {}
+    total_deleted = 0
+
+    for collection_name in collection_names:
+        if collection_name.startswith("system."):
+            continue
+
+        result = await database[collection_name].delete_many({})
+        deleted_by_collection[collection_name] = result.deleted_count
+        total_deleted += result.deleted_count
+
+    return {
+        "collections": deleted_by_collection,
+        "total_deleted": total_deleted,
+    }

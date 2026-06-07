@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from config.settings import settings
 from services.log_reader import read_log_tail, resolve_log_file
+from services.mongo import delete_all_records
 from services.rate_limit import enforce_rate_limit
 
 
@@ -75,4 +76,30 @@ async def read_dev_log(
         "max_bytes": settings.dev_log_max_bytes,
         "max_lines": lines,
         "content": content,
+    }
+
+
+@router.post("/admin/delete-all-records")
+async def delete_all_records_route(
+    request: Request,
+    confirm: str = Query(
+        min_length=1,
+        description="Must equal DELETE_ALL_RECORDS to execute",
+    ),
+) -> dict[str, object]:
+    _require_master_api_key(request)
+    await enforce_rate_limit(
+        request=request,
+        endpoint="/api/dev/admin/delete-all-records",
+        user_id="coding-agent-admin",
+    )
+
+    if confirm != "DELETE_ALL_RECORDS":
+        raise HTTPException(status_code=400, detail="confirm must equal DELETE_ALL_RECORDS")
+
+    deletion_result = await delete_all_records()
+    return {
+        "status": "ok",
+        "message": "All records deleted from non-system collections",
+        **deletion_result,
     }
