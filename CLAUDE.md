@@ -4,13 +4,13 @@ Repository instructions for Claude-based agents.
 
 ## Overview
 
-Winky Travel FastDB is a FastAPI + MongoDB backend for:
+Winky Travel FastDB is a FastAPI + PostgreSQL backend for:
 
 - user profile upsert/read
 - Google Places autocomplete/details proxy
 - per-user usage logging
 
-Deployed to a Proxmox LXC with native `mongod` and systemd-managed API.
+Deployed to a Proxmox LXC with native `postgresql` and systemd-managed API.
 
 ## Commands
 
@@ -19,12 +19,13 @@ Deployed to a Proxmox LXC with native `mongod` and systemd-managed API.
 - Health check: `curl http://127.0.0.1:8000/health`
 - Syntax check:
   ```bash
-  python3 -m py_compile api/main.py api/routes/health.py api/routes/users.py api/routes/places.py config/settings.py services/models.py services/mongo.py
+  python3 -m py_compile api/main.py api/routes/health.py api/routes/users.py api/routes/places.py config/settings.py services/models.py services/postgres.py
   ```
 
 ## Change Hygiene
 
 - Update `ARCHITECTURE.md` when endpoint/data contracts change.
+- Update `SCHEMA.md` when any database schema changes.
 - Keep `.env.example` and `.env.dev` aligned when config keys change.
 - Keep Google API keys on server only.
 

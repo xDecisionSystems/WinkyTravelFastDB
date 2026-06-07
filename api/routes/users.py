@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 
 from services.models import UserRecord, UserUpsertRequest
-from services.mongo import get_user, upsert_user
+from services.postgres import get_user, upsert_user
 from services.rate_limit import enforce_rate_limit
 
 

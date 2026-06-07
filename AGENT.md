@@ -7,7 +7,7 @@ Guidance for programming agents contributing to this repository.
 Maintain a self-hosted backend for Winky Travel running in a Debian-based Proxmox LXC:
 
 - FastAPI HTTP service for health, user records, and Google Places proxy endpoints.
-- MongoDB persistence for users and per-user Places usage logs.
+- PostgreSQL persistence for users and per-user Places usage logs.
 - Deployment/update scripts for repeatable LXC operations.
 
 Prioritize security (server-side API key handling), stable API contracts, and reliable operations.
@@ -38,6 +38,7 @@ WinkyTravelFastDB/
 |- AGENT.md
 |- CLAUDE.md
 |- ARCHITECTURE.md
+|- SCHEMA.md
 |- AGENT_LOG.md
 `- VERSION.md
 ```
@@ -46,10 +47,10 @@ WinkyTravelFastDB/
 
 | Service | Description | Port | Binding |
 |--------|-------------|------|---------|
-| `mongod` | MongoDB 8.0 (native apt) | 27017 | localhost only |
+| `postgresql` | PostgreSQL (native apt) | 5432 | localhost only |
 | `winky-travel-fastdb` | FastAPI API (uvicorn) | 8000 | 0.0.0.0 |
 
-MongoDB must not be exposed publicly.
+PostgreSQL must not be exposed publicly.
 
 ## 4. Environment Rules
 
@@ -63,6 +64,7 @@ MongoDB must not be exposed publicly.
 - Validate request payloads with Pydantic at API boundaries.
 - Keep Google API keys server-side only; never return keys to clients.
 - Preserve endpoint behavior documented in `ARCHITECTURE.md`.
+- If database schema changes, update `SCHEMA.md` in the same change.
 
 ## 6. Version Rule
 

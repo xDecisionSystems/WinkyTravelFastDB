@@ -2,10 +2,10 @@
 
 ## 1. High-Level Design
 
-Winky Travel FastDB is a single FastAPI service backed by MongoDB.
+Winky Travel FastDB is a single FastAPI service backed by PostgreSQL.
 
 ```text
-Winky Web App -> FastAPI (this repo) -> MongoDB
+Winky Web App -> FastAPI (this repo) -> PostgreSQL
                          |
                          +-> Google Places API (server-side proxy)
 ```
@@ -17,7 +17,7 @@ Client never receives or uses the Google Places API key directly.
 | Component | Technology | Port | Binding |
 |----------|------------|------|---------|
 | API | FastAPI + uvicorn | 8000 | 0.0.0.0 |
-| Database | MongoDB 8.0 | 27017 | localhost |
+| Database | PostgreSQL | 5432 | localhost |
 | HTTP client | httpx | n/a | outbound HTTPS |
 
 ## 3. Request Flow
@@ -54,7 +54,7 @@ Client never receives or uses the Google Places API key directly.
 
 ## 5. Data Model
 
-### `users` collection
+### `users` table
 
 - `user_id` (unique)
 - `email` (optional)
@@ -62,20 +62,142 @@ Client never receives or uses the Google Places API key directly.
 - `created_at`
 - `updated_at`
 
-### `usage_logs` collection
+### `usage_logs` table
 
 - `user_id`
 - `endpoint` (`places_autocomplete` or `place_details`)
 - `provider` (`google_places`)
 - `status_code`
-- `request_summary`
+- `request_summary` (`jsonb`)
 - `created_at`
+
+### `rate_limit_events` table
+
+- `subject_type`
+- `subject_key`
+- `endpoint`
+- `client_ip`
+- `user_id` (optional)
+- `allowed`
+- `reason` (optional)
+- `created_at`
+
+### Trip-planning domain tables (aligned with `WinkyTravelDev`)
+
+### `trips` table
+
+- `id`
+- `owner_user_id`
+- `vacation_name`
+- `location`
+- `start_date`
+- `end_date`
+- `created_at`
+- `updated_at`
+
+### `trip_shares` table
+
+- `id`
+- `trip_id`
+- `shared_with_user_id`
+- `shared_by_user_id`
+- `can_view`
+- `can_add`
+- `can_delete`
+- `can_edit`
+- `can_owner`
+- `created_at`
+- `updated_at`
+
+### `activities` table
+
+- `id`
+- `user_id`
+- `trip_id`
+- `name`
+- `type`
+- `notes`
+- `scheduled_day` (optional)
+- `scheduled_time` (optional)
+- `time_of_day` (optional: `morning`/`afternoon`/`evening`)
+- `attachments` (`jsonb`)
+- `custom_type_name` (optional)
+- `custom_icon` (optional)
+- `created_at`
+- `updated_at`
+
+### `travels` table
+
+- `id`
+- `user_id`
+- `trip_id`
+- `type`
+- `departure`
+- `arrival`
+- `date`
+- `time`
+- `confirmation_number`
+- `notes`
+- `attachments` (`jsonb`)
+- `created_at`
+- `updated_at`
+
+### `hotels` table
+
+- `id`
+- `user_id`
+- `trip_id`
+- `name`
+- `address`
+- `check_in`
+- `check_out`
+- `confirmation_number`
+- `notes`
+- `attachments` (`jsonb`)
+- `created_at`
+- `updated_at`
+
+### `transits` table
+
+- `id`
+- `user_id`
+- `trip_id`
+- `type`
+- `from_location`
+- `to_location`
+- `notes`
+- `attachments` (`jsonb`)
+- `created_at`
+- `updated_at`
+
+### `schedule_items` table
+
+- `id`
+- `user_id`
+- `trip_id`
+- `day_date`
+- `display_order`
+- `item_type` (`activity`/`travel`/`hotel`/`transit`)
+- `item_id`
+- `created_at`
+- `updated_at`
+
+### `custom_activity_types` and `activity_icon_overrides`
+
+- Persist custom activity labels/icons from the frontend settings model.
 
 Indexes:
 
-- `users.user_id` unique
+- `users.user_id` primary key
 - `usage_logs` on `(user_id, created_at desc)`
 - `usage_logs` on `(endpoint, created_at desc)`
+- `rate_limit_events` on `(subject_type, subject_key, allowed, created_at desc)`
+- `trips` on `(owner_user_id, start_date)`
+- `trip_shares` on `(shared_with_user_id, trip_id)` and `(trip_id)`
+- `activities` on `(user_id, trip_id)` and `(trip_id, scheduled_day)`
+- `travels` on `(trip_id, date, time)`
+- `hotels` on `(trip_id, check_in)`
+- `schedule_items` on `(trip_id, day_date, display_order)`
 
 ## 6. Configuration
 
@@ -83,8 +205,7 @@ Loaded from `.env` via `config/settings.py`.
 
 | Variable | Required | Default | Description |
 |---------|----------|---------|-------------|
-| `MONGO_URI` | yes | none | Mongo connection URI |
-| `MONGO_DB` | yes | none | DB name |
+| `DATABASE_URL` | yes | none | PostgreSQL connection URI |
 | `API_HOST` | no | `0.0.0.0` | API bind host |
 | `API_PORT` | no | `8000` | API bind port |
 | `GOOGLE_MAPS_API_KEY` | recommended | empty | Server-side Places key |
@@ -100,7 +221,7 @@ Proxmox host
 └─ LXC (Debian)
    ├─ /opt/winky-travel-fastdb
    ├─ /opt/winky-travel-fastdb-env
-   ├─ mongod.service
+   ├─ postgresql.service
    └─ winky-travel-fastdb.service
 ```
 

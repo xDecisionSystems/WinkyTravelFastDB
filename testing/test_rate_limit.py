@@ -39,29 +39,29 @@ if "dotenv" not in sys.modules:
         dotenv_stub.load_dotenv = load_dotenv
         sys.modules["dotenv"] = dotenv_stub
 
-if "motor.motor_asyncio" not in sys.modules:
+if "asyncpg" not in sys.modules:
     try:
-        import motor.motor_asyncio  # noqa: F401
+        import asyncpg  # noqa: F401
     except ModuleNotFoundError:
-        motor_pkg = types.ModuleType("motor")
-        motor_asyncio_stub = types.ModuleType("motor.motor_asyncio")
+        asyncpg_stub = types.ModuleType("asyncpg")
 
-        class AsyncIOMotorClient:
-            def __init__(self, *_args: object, **_kwargs: object) -> None:
-                pass
+        class Pool:
+            async def acquire(self) -> object:
+                raise RuntimeError("stub pool has no connections")
 
-        class AsyncIOMotorDatabase:
+        class Connection:
             pass
 
-        motor_asyncio_stub.AsyncIOMotorClient = AsyncIOMotorClient
-        motor_asyncio_stub.AsyncIOMotorDatabase = AsyncIOMotorDatabase
-        motor_pkg.motor_asyncio = motor_asyncio_stub
-        sys.modules["motor"] = motor_pkg
-        sys.modules["motor.motor_asyncio"] = motor_asyncio_stub
+        async def create_pool(*_args: object, **_kwargs: object) -> Pool:
+            return Pool()
+
+        asyncpg_stub.Pool = Pool
+        asyncpg_stub.Connection = Connection
+        asyncpg_stub.create_pool = create_pool
+        sys.modules["asyncpg"] = asyncpg_stub
 
 # Ensure required settings vars exist before importing app modules.
-os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:27017")
-os.environ.setdefault("MONGO_DB", "winky_travel_test")
+os.environ.setdefault("DATABASE_URL", "postgresql://winky:test@127.0.0.1:5432/winky_travel_test")
 
 from services.rate_limit import enforce_rate_limit
 

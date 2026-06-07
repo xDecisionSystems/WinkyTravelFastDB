@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from config.settings import settings
 from services.models import PlaceAutocompleteRequest, PlaceDetailsRequest
-from services.mongo import insert_usage_log
+from services.postgres import insert_usage_log
 from services.rate_limit import enforce_rate_limit
 
 

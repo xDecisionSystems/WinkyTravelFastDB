@@ -11,7 +11,7 @@ from api.routes.llms import router as llms_router
 from api.routes.places import router as places_router
 from api.routes.users import router as users_router
 from config.settings import settings
-from services.mongo import close, connect
+from services.postgres import close, connect
 
 
 @asynccontextmanager

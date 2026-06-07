@@ -67,13 +67,15 @@ log "Installing runtime packages in container ..."
 ssh "${SSH_OPTS[@]}" "root@${PROXMOX_HOST}" "pct exec ${VMID} -- bash -lc '
   set -euo pipefail
   apt-get update
-  apt-get install -y git curl python3 python3-venv python3-pip gnupg
+  apt-get install -y git curl python3 python3-venv python3-pip postgresql
+  systemctl enable --now postgresql
 
-  curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
-  echo \"deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main\" > /etc/apt/sources.list.d/mongodb-org-8.0.list
-  apt-get update
-  apt-get install -y mongodb-org
-  systemctl enable --now mongod
+  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname = \$\$winky\$\$\" | grep -q 1; then
+    runuser -u postgres -- psql -c \"CREATE ROLE winky LOGIN PASSWORD \$\$change-this-password\$\$\"
+  fi
+  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_database WHERE datname = \$\$winky_travel\$\$\" | grep -q 1; then
+    runuser -u postgres -- psql -c \"CREATE DATABASE winky_travel OWNER winky\"
+  fi
 '
 "
 
@@ -98,8 +100,8 @@ ssh "${SSH_OPTS[@]}" "root@${PROXMOX_HOST}" "pct exec ${VMID} -- bash -lc '
   cat > /etc/systemd/system/${SERVICE_NAME}.service << UNIT
 [Unit]
 Description=Winky Travel FastDB API
-After=network.target mongod.service
-Requires=mongod.service
+After=network.target postgresql.service
+Requires=postgresql.service
 
 [Service]
 Type=simple

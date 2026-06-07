@@ -11,8 +11,7 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
-    mongo_uri: str
-    mongo_db: str
+    database_url: str
     api_host: str
     api_port: int
     google_maps_api_key: str
@@ -52,8 +51,7 @@ def _optional_positive_int(name: str, default: str) -> int:
 
 
 settings = Settings(
-    mongo_uri=_required("MONGO_URI"),
-    mongo_db=_required("MONGO_DB"),
+    database_url=_required("DATABASE_URL"),
     api_host=_optional("API_HOST", "0.0.0.0"),
     api_port=int(_optional("API_PORT", "8000")),
     google_maps_api_key=_optional("GOOGLE_MAPS_API_KEY", ""),

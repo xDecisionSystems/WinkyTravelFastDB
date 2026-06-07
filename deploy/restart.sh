@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# restart.sh — Restart MongoDB then Winky Travel FastDB API.
+# restart.sh — Restart PostgreSQL then Winky Travel FastDB API.
 
 set -euo pipefail
 
-MONGO_PORT=27017
+POSTGRES_PORT=5432
 API_PORT=8000
 SERVICE_NAME="winky-travel-fastdb"
 
 log() { echo "[restart] $*"; }
 die() { echo "[restart] ERROR: $*" >&2; exit 1; }
 
-log "Restarting mongod ..."
-systemctl restart mongod
+log "Restarting postgresql ..."
+systemctl restart postgresql
 
-log "Waiting for MongoDB on port ${MONGO_PORT} ..."
+log "Waiting for PostgreSQL on port ${POSTGRES_PORT} ..."
 for i in $(seq 1 20); do
-  mongosh --quiet --eval "db.adminCommand('ping')" > /dev/null 2>&1 && break
+  pg_isready -h 127.0.0.1 -p "${POSTGRES_PORT}" > /dev/null 2>&1 && break
   sleep 2
   if [[ "$i" -eq 20 ]]; then
-    die "MongoDB did not come up after restart."
+    die "PostgreSQL did not come up after restart."
   fi
 done
 

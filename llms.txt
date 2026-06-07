@@ -1,5 +1,5 @@
 # Winky Travel FastDB
-> FastAPI + MongoDB backend for Winky Travel. It stores users, proxies Google Places calls, tracks usage, and includes dev-only admin/testing endpoints.
+> FastAPI + PostgreSQL backend for Winky Travel. It stores users, trip-planning entities (trips/activities/travels/hotels/transits/schedule), proxies Google Places calls, tracks usage, and includes dev-only admin/testing endpoints.
 
 Use concise API requests with JSON bodies. For local development, copy `.env.dev` to `.env`, then run `uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload`.
 

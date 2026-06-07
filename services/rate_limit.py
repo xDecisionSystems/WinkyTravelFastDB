@@ -5,7 +5,7 @@ from datetime import timedelta
 from fastapi import HTTPException, Request
 
 from config.settings import settings
-from services.mongo import count_rate_limit_events, insert_rate_limit_event, utcnow
+from services.postgres import count_rate_limit_events, insert_rate_limit_event, utcnow
 
 
 def _client_ip(request: Request) -> str:

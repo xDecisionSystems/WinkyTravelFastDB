@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from config.settings import settings
 from services.log_reader import read_log_tail, resolve_log_file
-from services.mongo import delete_all_records
+from services.postgres import delete_all_records
 from services.rate_limit import enforce_rate_limit
 
 
@@ -100,6 +100,6 @@ async def delete_all_records_route(
     deletion_result = await delete_all_records()
     return {
         "status": "ok",
-        "message": "All records deleted from non-system collections",
+        "message": "All records deleted from core PostgreSQL tables",
         **deletion_result,
     }
