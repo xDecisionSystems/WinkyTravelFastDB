@@ -95,7 +95,7 @@ ssh_run() {
 
 lxc_exec() {
   local vmid="$1"; shift
-  ssh_run "pct exec ${vmid} -- bash -c $(printf '%q' "$*")"
+  ssh_run "pct exec ${vmid} -- env LANG=C LC_ALL=C bash -c $(printf '%q' "$*")"
 }
 
 next_available_vmid() {
@@ -386,8 +386,7 @@ lxc_exec "${VMID}" "
   export DEBIAN_FRONTEND=noninteractive
   apt_log=\"\$(mktemp)\"
   if ! apt-get update -qq > \"\$apt_log\" 2>&1 || \
-     ! apt-get install -y -qq git curl python3 python3-venv python3-pip postgresql locales >> \"\$apt_log\" 2>&1 || \
-     ! locale-gen en_US.UTF-8 >> \"\$apt_log\" 2>&1; then
+     ! apt-get install -y -qq git curl python3 python3-venv python3-pip postgresql >> \"\$apt_log\" 2>&1; then
     echo '--- apt output ---' >&2
     cat \"\$apt_log\" >&2
     rm -f \"\$apt_log\"
