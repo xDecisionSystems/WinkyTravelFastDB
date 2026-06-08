@@ -95,7 +95,7 @@ ssh_run() {
 
 lxc_exec() {
   local vmid="$1"; shift
-  ssh_run "pct exec ${vmid} -- env LANG=C LC_ALL=C bash -c $(printf '%q' "$*")"
+  ssh_run "pct exec ${vmid} -- env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bash -c $(printf '%q' "$*")"
 }
 
 next_available_vmid() {
@@ -376,6 +376,24 @@ ssh_run "pct start ${VMID}"
 
 log "Waiting for LXC to be ready ..."
 ssh_run "sleep 6"
+
+log "Generating en_US.UTF-8 locale in container ..."
+ssh_run "pct exec ${VMID} -- env LANG=C LC_ALL=C bash -c $(printf '%q' "
+  set -euo pipefail
+  export DEBIAN_FRONTEND=noninteractive
+  loc_log=\"\$(mktemp)\"
+  if ! apt-get update -qq > \"\$loc_log\" 2>&1 || \
+     ! apt-get install -y -qq locales >> \"\$loc_log\" 2>&1 || \
+     ! sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen || \
+     ! locale-gen >> \"\$loc_log\" 2>&1 || \
+     ! update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 >> \"\$loc_log\" 2>&1; then
+    echo '--- locale setup output ---' >&2
+    cat \"\$loc_log\" >&2
+    rm -f \"\$loc_log\"
+    exit 1
+  fi
+  rm -f \"\$loc_log\"
+")"
 
 log "Installing runtime packages in container ..."
 db_role_name_sql="${DB_ROLE_NAME//\'/\'\'}"
