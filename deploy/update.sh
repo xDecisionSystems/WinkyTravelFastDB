@@ -146,8 +146,8 @@ log "Pulling latest code in ${INSTALL_DIR} ..."
 git_repo_cmd pull --ff-only
 
 log "Installing Python dependencies ..."
-"${VENV_DIR}/bin/pip" install --upgrade pip
-"${VENV_DIR}/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
+"${VENV_DIR}/bin/pip" install --quiet --upgrade pip
+"${VENV_DIR}/bin/pip" install --quiet -r "${INSTALL_DIR}/requirements.txt"
 
 maybe_recreate_database
 
