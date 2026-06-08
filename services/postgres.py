@@ -56,7 +56,7 @@ async def _create_schema(conn: asyncpg.Connection) -> None:
         CREATE TABLE IF NOT EXISTS trips (
             id TEXT PRIMARY KEY,
             owner_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-            vacation_name TEXT NOT NULL,
+            trip_name TEXT NOT NULL,
             location TEXT NOT NULL,
             start_date DATE NOT NULL,
             end_date DATE NOT NULL,
@@ -101,6 +101,22 @@ async def _create_schema(conn: asyncpg.Connection) -> None:
                   AND column_name = 'user_id'
             ) THEN
                 ALTER TABLE trips RENAME COLUMN user_id TO owner_user_id;
+            END IF;
+        END $$;
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'trips'
+                  AND column_name = 'vacation_name'
+            ) THEN
+                ALTER TABLE trips RENAME COLUMN vacation_name TO trip_name;
             END IF;
         END $$;
         """
@@ -576,7 +592,7 @@ def _new_id() -> str:
 async def create_trip(
     *,
     owner_user_id: str,
-    vacation_name: str,
+    trip_name: str,
     location: str,
     start_date: Any,
     end_date: Any,
@@ -587,13 +603,13 @@ async def create_trip(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO trips (id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at)
+            INSERT INTO trips (id, owner_user_id, trip_name, location, start_date, end_date, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-            RETURNING id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            RETURNING id, owner_user_id, trip_name, location, start_date, end_date, created_at, updated_at
             """,
             trip_id,
             owner_user_id,
-            vacation_name,
+            trip_name,
             location,
             start_date,
             end_date,
@@ -609,7 +625,7 @@ async def list_trips(owner_user_id: str) -> list[dict[str, Any]]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            SELECT id, owner_user_id, trip_name, location, start_date, end_date, created_at, updated_at
             FROM trips
             WHERE owner_user_id = $1
             ORDER BY start_date ASC
@@ -624,7 +640,7 @@ async def get_trip(trip_id: str) -> dict[str, Any] | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            SELECT id, owner_user_id, trip_name, location, start_date, end_date, created_at, updated_at
             FROM trips
             WHERE id = $1
             """,
@@ -656,7 +672,7 @@ async def update_trip(trip_id: str, fields: dict[str, Any]) -> dict[str, Any] | 
             UPDATE trips
             SET {', '.join(assignments)}, updated_at = ${updated_at_index}
             WHERE id = ${trip_id_index}
-            RETURNING id, owner_user_id, vacation_name, location, start_date, end_date, created_at, updated_at
+            RETURNING id, owner_user_id, trip_name, location, start_date, end_date, created_at, updated_at
             """,
             *values,
         )

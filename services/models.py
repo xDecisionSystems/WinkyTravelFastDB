@@ -60,14 +60,14 @@ Attachment = dict[str, Any]
 
 class TripCreateRequest(BaseModel):
     owner_user_id: str = Field(min_length=1, max_length=128)
-    vacation_name: str = Field(min_length=1, max_length=200)
+    trip_name: str = Field(min_length=1, max_length=200)
     location: str = Field(min_length=1, max_length=200)
     start_date: date_type
     end_date: date_type
 
 
 class TripUpdateRequest(BaseModel):
-    vacation_name: str | None = Field(default=None, min_length=1, max_length=200)
+    trip_name: str | None = Field(default=None, min_length=1, max_length=200)
     location: str | None = Field(default=None, min_length=1, max_length=200)
     start_date: date_type | None = None
     end_date: date_type | None = None
@@ -76,7 +76,7 @@ class TripUpdateRequest(BaseModel):
 class TripRecord(BaseModel):
     id: str
     owner_user_id: str
-    vacation_name: str
+    trip_name: str
     location: str
     start_date: date_type
     end_date: date_type

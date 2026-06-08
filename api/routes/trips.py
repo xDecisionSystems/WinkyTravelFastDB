@@ -30,7 +30,7 @@ async def create_trip_route(payload: TripCreateRequest, request: Request) -> Tri
     await enforce_rate_limit(request=request, endpoint="/api/trips", user_id=payload.owner_user_id)
     doc = await create_trip(
         owner_user_id=payload.owner_user_id,
-        vacation_name=payload.vacation_name,
+        trip_name=payload.trip_name,
         location=payload.location,
         start_date=payload.start_date,
         end_date=payload.end_date,

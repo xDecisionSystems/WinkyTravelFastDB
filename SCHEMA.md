@@ -39,7 +39,7 @@ Source of truth in code:
 
 - `id` `TEXT` primary key
 - `owner_user_id` `TEXT` not null references `users(user_id)` on delete cascade
-- `vacation_name` `TEXT` not null
+- `trip_name` `TEXT` not null
 - `location` `TEXT` not null
 - `start_date` `DATE` not null
 - `end_date` `DATE` not null

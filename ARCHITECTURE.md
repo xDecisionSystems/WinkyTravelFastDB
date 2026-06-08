@@ -124,7 +124,7 @@ Client never receives or uses the Google Places API key directly.
 
 - `id`
 - `owner_user_id`
-- `vacation_name`
+- `trip_name`
 - `location`
 - `start_date`
 - `end_date`
