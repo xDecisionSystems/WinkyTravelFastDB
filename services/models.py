@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from datetime import time as time_type
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def utcnow() -> datetime:
@@ -55,7 +55,39 @@ class UsageLog(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
-Attachment = dict[str, Any]
+ATTACHMENT_ALLOWED_TYPES = ("application/pdf",)
+ATTACHMENT_ALLOWED_TYPE_PREFIXES = ("image/",)
+ATTACHMENT_MAX_DATA_LENGTH = 7_000_000  # ~5 MB file as a base64 data URL
+ATTACHMENT_MAX_COUNT = 10
+
+
+def _is_allowed_attachment_type(mime_type: str) -> bool:
+    return mime_type in ATTACHMENT_ALLOWED_TYPES or mime_type.startswith(ATTACHMENT_ALLOWED_TYPE_PREFIXES)
+
+
+class Attachment(BaseModel):
+    name: str = Field(min_length=1, max_length=256)
+    type: str = Field(min_length=1, max_length=128)
+    data: str = Field(min_length=1, max_length=ATTACHMENT_MAX_DATA_LENGTH)
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        if not _is_allowed_attachment_type(value):
+            raise ValueError("attachment type must be a PDF or an image")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_data_matches_type(self) -> "Attachment":
+        prefix, _, _ = self.data.partition(",")
+        if not prefix.startswith("data:") or ";base64" not in prefix:
+            raise ValueError("attachment data must be a base64 data URL")
+        declared_mime = prefix[len("data:"):].split(";", 1)[0]
+        if not _is_allowed_attachment_type(declared_mime):
+            raise ValueError("attachment data URL must declare a PDF or image MIME type")
+        if declared_mime != self.type:
+            raise ValueError("attachment type must match the data URL's declared MIME type")
+        return self
 
 
 class TripCreateRequest(BaseModel):
@@ -126,7 +158,7 @@ class ActivityCreateRequest(BaseModel):
     scheduled_day: date_type | None = None
     scheduled_time: time_type | None = None
     time_of_day: Literal["morning", "afternoon", "evening"] | None = None
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=ATTACHMENT_MAX_COUNT)
     custom_type_name: str | None = Field(default=None, max_length=120)
     custom_icon: str | None = Field(default=None, max_length=120)
 
@@ -139,7 +171,7 @@ class ActivityUpdateRequest(BaseModel):
     scheduled_day: date_type | None = None
     scheduled_time: time_type | None = None
     time_of_day: Literal["morning", "afternoon", "evening"] | None = None
-    attachments: list[Attachment] | None = None
+    attachments: list[Attachment] | None = Field(default=None, max_length=ATTACHMENT_MAX_COUNT)
     custom_type_name: str | None = Field(default=None, max_length=120)
     custom_icon: str | None = Field(default=None, max_length=120)
 
@@ -171,7 +203,7 @@ class TravelCreateRequest(BaseModel):
     time: time_type
     confirmation_number: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=4000)
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class TravelUpdateRequest(BaseModel):
@@ -183,7 +215,7 @@ class TravelUpdateRequest(BaseModel):
     time: time_type | None = None
     confirmation_number: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=4000)
-    attachments: list[Attachment] | None = None
+    attachments: list[Attachment] | None = Field(default=None, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class TravelRecord(BaseModel):
@@ -211,7 +243,7 @@ class HotelCreateRequest(BaseModel):
     check_out: date_type
     confirmation_number: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=4000)
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class HotelUpdateRequest(BaseModel):
@@ -222,7 +254,7 @@ class HotelUpdateRequest(BaseModel):
     check_out: date_type | None = None
     confirmation_number: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=4000)
-    attachments: list[Attachment] | None = None
+    attachments: list[Attachment] | None = Field(default=None, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class HotelRecord(BaseModel):
@@ -247,7 +279,7 @@ class TransitCreateRequest(BaseModel):
     from_location: str = Field(default="", max_length=200)
     to_location: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=4000)
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class TransitUpdateRequest(BaseModel):
@@ -256,7 +288,7 @@ class TransitUpdateRequest(BaseModel):
     from_location: str | None = Field(default=None, max_length=200)
     to_location: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=4000)
-    attachments: list[Attachment] | None = None
+    attachments: list[Attachment] | None = Field(default=None, max_length=ATTACHMENT_MAX_COUNT)
 
 
 class TransitRecord(BaseModel):

@@ -86,7 +86,12 @@ Client never receives or uses the Google Places API key directly.
   filter, and schedule items require `trip_id` (with optional `day_date`).
 - `PATCH` requests use partial-update semantics (`exclude_unset`): omitted fields are
   left unchanged.
-- `attachments` fields are passed through as JSON arrays and stored as `jsonb`.
+- `attachments` fields are JSON arrays of `{ name, type, data }` base64 data-URL
+  objects, stored as `jsonb`. Each attachment is validated server-side: `type` must
+  be an image (`image/*`) or `application/pdf` MIME type, `data` must be a base64
+  data URL whose declared MIME matches `type`, individual attachment data is capped
+  at ~5 MB (7,000,000 base64 characters), and each record may hold at most 10
+  attachments. Requests violating these constraints are rejected with `422`.
 - Every route enforces the same per-second/hour/day rate limiting as existing endpoints.
 - Records reference `owner_user_id`/`user_id` via foreign keys to `users`; creating a
   trip or domain record for an unknown user returns a database foreign-key error.
