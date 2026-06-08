@@ -24,6 +24,7 @@ LXC_IP="${LXC_IP:-dhcp}"
 GATEWAY="${GATEWAY:-}"
 DNS="${DNS:-8.8.8.8}"
 TEMPLATE="${TEMPLATE:-}"
+INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-}"
 DRY_RUN=0
 
 HOSTNAME="winky-travel-fastdb"
@@ -125,6 +126,8 @@ while [[ $# -gt 0 ]]; do
     --dns) DNS="$2"; shift 2 ;;
     --template) TEMPLATE="$2"; shift 2 ;;
     --upload-env) UPLOAD_ENV_FILE="$2"; shift 2 ;;
+    --install-tailscale) INSTALL_TAILSCALE="y"; shift ;;
+    --no-install-tailscale) INSTALL_TAILSCALE="n"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) die "Unknown option: $1" ;;
   esac
@@ -285,7 +288,13 @@ if [[ "${INTERACTIVE}" == "1" ]]; then
       fi
     fi
   fi
+
+  if [[ -z "${INSTALL_TAILSCALE}" ]]; then
+    read -r -p "Install Tailscale on VMID ${VMID}? [Y/n] " INSTALL_TAILSCALE
+    INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-y}"
+  fi
 fi
+INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-n}"
 
 DB_ROLE_NAME="winky"
 DB_ROLE_PASSWORD="change-this-password"
@@ -327,6 +336,7 @@ if [[ "${INTERACTIVE}" == "1" ]]; then
   echo "  Repo         : ${REPO_URL} (branch: ${REPO_BRANCH})"
   echo "  Config source: ${ENV_FILE}"
   echo "  Upload .env  : ${UPLOAD_ENV_FILE:-(none — use .env.example from repo)}"
+  echo "  Tailscale    : $([[ "${INSTALL_TAILSCALE,,}" == "y" ]] && echo "install" || echo "skip")"
   if [[ -n "${FOUND_VMID}" && "${VMID}" != "${FOUND_VMID}" ]]; then
     echo ""
     echo "  WARNING: existing '${HOSTNAME}' found at VMID ${FOUND_VMID},"
@@ -497,6 +507,60 @@ lxc_exec "${VMID}" "
   echo '${SERVICE_NAME} did not start in time'; exit 1
 "
 log "${SERVICE_NAME} PASSED."
+
+if [[ "${INSTALL_TAILSCALE,,}" == "y" ]]; then
+  log "Configuring LXC ${VMID} for Tailscale (TUN device access) ..."
+  CTID_CONFIG_PATH="/etc/pve/lxc/${VMID}.conf"
+  ssh_run "
+    grep -q 'lxc.cgroup2.devices.allow: c 10:200 rwm' '${CTID_CONFIG_PATH}' || \
+      echo 'lxc.cgroup2.devices.allow: c 10:200 rwm' >> '${CTID_CONFIG_PATH}'
+    grep -q 'lxc.mount.entry: /dev/net/tun' '${CTID_CONFIG_PATH}' || \
+      echo 'lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file' >> '${CTID_CONFIG_PATH}'
+  "
+
+  log "Installing Tailscale inside LXC ${VMID} ..."
+  lxc_exec "${VMID}" "
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    . /etc/os-release
+    mkdir -p /usr/share/keyrings
+    curl -fsSL \"https://pkgs.tailscale.com/stable/\${ID}/\${VERSION_CODENAME}.noarmor.gpg\" \
+      | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
+    echo \"deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] \
+      https://pkgs.tailscale.com/stable/\${ID} \${VERSION_CODENAME} main\" \
+      > /etc/apt/sources.list.d/tailscale.list
+    ts_log=\"\$(mktemp)\"
+    if ! apt-get update -qq > \"\$ts_log\" 2>&1 || \
+       ! apt-get install -y -qq tailscale >> \"\$ts_log\" 2>&1; then
+      echo '--- tailscale install output ---' >&2
+      cat \"\$ts_log\" >&2
+      rm -f \"\$ts_log\"
+      exit 1
+    fi
+    rm -f \"\$ts_log\"
+  "
+
+  log "Tagging LXC ${VMID} with 'tailscale' ..."
+  ssh_run "
+    TAGS=\$(awk -F': ' '/^tags:/ {print \$2}' '${CTID_CONFIG_PATH}')
+    TAGS=\"\${TAGS:+\$TAGS; }tailscale\"
+    pct set ${VMID} -tags \"\$TAGS\"
+  "
+
+  log "Tailscale installed. Rebooting LXC ${VMID} ..."
+  ssh_run "pct reboot ${VMID}"
+  log "Waiting for LXC to come back up ..."
+  ssh_run "sleep 10"
+  lxc_exec "${VMID}" "
+    for i in \$(seq 1 15); do
+      curl -sf http://127.0.0.1:${API_PORT}/health > /dev/null 2>&1 && exit 0
+      sleep 2
+    done
+    echo 'WARNING: ${SERVICE_NAME} did not respond after reboot — check manually'
+  "
+  log "LXC back online."
+  log "Run 'tailscale up' inside the container to activate Tailscale."
+fi
 
 LXC_ACTUAL_IP="$(ssh_run "pct exec ${VMID} -- hostname -I 2>/dev/null | awk '{print \$1}'" || echo "(check manually)")"
 

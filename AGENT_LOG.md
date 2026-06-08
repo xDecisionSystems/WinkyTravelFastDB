@@ -6,6 +6,17 @@ Archive to `history/YYYY-MM.md` when this file exceeds 200 lines (keep 10 most r
 
 ---
 
+## [2026-06-08] claude-sonnet-4-6 - add optional Tailscale install to Proxmox deploy script
+**Action:** Ported the "Install Tailscale?" flow from `fastLibrary`'s deploy script — the user noticed `WinkyTravelFastDB`'s setup script never offered this. Added an `INSTALL_TAILSCALE` setting (CLI flags `--install-tailscale`/`--no-install-tailscale`, env var, or interactive `[Y/n]` prompt defaulting to yes) that, when enabled, configures the LXC for TUN device access (`lxc.cgroup2.devices.allow`/`lxc.mount.entry` in `/etc/pve/lxc/<vmid>.conf`), installs Tailscale from its official apt repo inside the container, tags the container `tailscale`, reboots it, and waits for the API to come back up.
+**Files changed:**
+- `deploy/proxmox_deploy.sh` - added `INSTALL_TAILSCALE` var/flags/prompt, summary line, and the install/configure/tag/reboot block (runs after the health check passes, mirroring `fastLibrary`'s placement and logic)
+- `VERSION.md` - bumped to `winky-travel-fastdb-v0.2.3`
+- `AGENT_LOG.md` - prepended this entry
+**Decisions:** Defaulted `INSTALL_TAILSCALE` to `n` for non-interactive runs (so scripted/CI invocations don't unexpectedly install it) but `[Y/n]` (default yes) when prompting interactively, matching `fastLibrary`'s convention. Routed all remote commands through the existing `ssh_run`/`lxc_exec` helpers so `--dry-run` and SSH multiplexing work automatically; captured the Tailscale apt install output into a temp log shown only on failure, consistent with this script's existing quiet-output pattern for the runtime package install.
+**Open items:** None — not yet exercised against a live host with Tailscale enabled.
+
+---
+
 ## [2026-06-08] claude-sonnet-4-6 - rework Proxmox deploy script (multiplexed SSH, dry-run, .env sync, diagnostics)
 **Action:** Substantially reworked `deploy/proxmox_deploy.sh`, porting and adapting patterns from `fastLibrary`'s deploy script and fixing real failures hit during live deploys to a Proxmox host:
 - Added SSH `ControlMaster`/`ControlPath` connection multiplexing (`ssh_open`/`ssh_close`/`ssh_run`/`lxc_exec`) so the whole run reuses one authenticated connection, plus a `--dry-run` flag that echoes remote commands instead of executing them.
