@@ -10,6 +10,13 @@ SERVICE_NAME="winky-travel-fastdb"
 log() { echo "[update] $*"; }
 die() { echo "[update] ERROR: $*" >&2; exit 1; }
 
+repo_owner_user() {
+  local owner
+  owner="$(stat -c '%U' "${INSTALL_DIR}" 2>/dev/null || true)"
+  [[ -n "${owner}" && "${owner}" != "UNKNOWN" ]] || die "Could not determine repo owner for ${INSTALL_DIR}"
+  echo "${owner}"
+}
+
 confirm() {
   local prompt="$1"
   local reply
@@ -88,7 +95,12 @@ fi
 OLD_VERSION="$(grep '^VERSION_NAME=' "${INSTALL_DIR}/VERSION.md" 2>/dev/null | cut -d= -f2 || echo 'unknown')"
 
 log "Pulling latest code in ${INSTALL_DIR} ..."
-git -C "${INSTALL_DIR}" pull --ff-only
+REPO_OWNER="$(repo_owner_user)"
+if [[ "${REPO_OWNER}" == "root" ]]; then
+  git -C "${INSTALL_DIR}" pull --ff-only
+else
+  runuser -u "${REPO_OWNER}" -- git -C "${INSTALL_DIR}" pull --ff-only
+fi
 
 log "Installing Python dependencies ..."
 "${VENV_DIR}/bin/pip" install --upgrade pip
