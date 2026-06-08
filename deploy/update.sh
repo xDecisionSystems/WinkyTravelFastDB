@@ -146,8 +146,20 @@ log "Pulling latest code in ${INSTALL_DIR} ..."
 git_repo_cmd pull --ff-only
 
 log "Installing Python dependencies ..."
-"${VENV_DIR}/bin/pip" install --quiet --upgrade pip
-"${VENV_DIR}/bin/pip" install --quiet -r "${INSTALL_DIR}/requirements.txt"
+PIP_LOG="$(mktemp /tmp/winky-update-pip.XXXXXX.log)"
+if ! "${VENV_DIR}/bin/pip" install --quiet --upgrade pip >"${PIP_LOG}" 2>&1; then
+  log "pip upgrade failed. Recent output:"
+  tail -n 200 "${PIP_LOG}" >&2 || true
+  rm -f "${PIP_LOG}"
+  die "Python dependency install failed."
+fi
+if ! "${VENV_DIR}/bin/pip" install --quiet -r "${INSTALL_DIR}/requirements.txt" >>"${PIP_LOG}" 2>&1; then
+  log "pip requirements install failed. Recent output:"
+  tail -n 200 "${PIP_LOG}" >&2 || true
+  rm -f "${PIP_LOG}"
+  die "Python dependency install failed."
+fi
+rm -f "${PIP_LOG}"
 
 maybe_recreate_database
 
