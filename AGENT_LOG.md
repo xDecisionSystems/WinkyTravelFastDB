@@ -6,6 +6,17 @@ Archive to `history/YYYY-MM.md` when this file exceeds 200 lines (keep 10 most r
 
 ---
 
+## [2026-06-08] claude-sonnet-4-6 - fill endpoint-map gaps in ARCHITECTURE.md
+**Action:** Reviewed the project for drift between docs and code (prompted by the user opening `SCHEMA.md`). `SCHEMA.md` matched `services/postgres.py`'s `_create_schema` exactly (every table/column/constraint/index), and all three `.env*` files had identical key sets — no changes needed there. Found that `ARCHITECTURE.md`'s "Endpoint Map" (section 4) was missing four routes that exist in code and are registered in `api/main.py`: `GET /llms.txt` (+ `/llm.txt` alias), `GET /api/dev/logs`, and `POST /api/dev/admin/delete-all-records`. These were already documented with curl examples in `README.md` but absent from the structural endpoint map.
+**Files changed:**
+- `ARCHITECTURE.md` - added the four missing routes to the endpoint map table (section 4), with one-line descriptions mirroring `README.md`'s existing documentation
+- `VERSION.md` - bumped to `winky-travel-fastdb-v0.2.4`
+- `AGENT_LOG.md` - prepended this entry
+**Decisions:** Kept descriptions terse (matching the table's existing style) and noted the `X-Master-API-Key` auth requirement and destructive nature of the dev-admin route inline, since those are the key facts a reader of the structural map would need before reaching for `README.md`'s fuller usage docs.
+**Open items:** None.
+
+---
+
 ## [2026-06-08] claude-sonnet-4-6 - add optional Tailscale install to Proxmox deploy script
 **Action:** Ported the "Install Tailscale?" flow from `fastLibrary`'s deploy script — the user noticed `WinkyTravelFastDB`'s setup script never offered this. Added an `INSTALL_TAILSCALE` setting (CLI flags `--install-tailscale`/`--no-install-tailscale`, env var, or interactive `[Y/n]` prompt defaulting to yes) that, when enabled, configures the LXC for TUN device access (`lxc.cgroup2.devices.allow`/`lxc.mount.entry` in `/etc/pve/lxc/<vmid>.conf`), installs Tailscale from its official apt repo inside the container, tags the container `tailscale`, reboots it, and waits for the API to come back up.
 **Files changed:**

@@ -54,6 +54,9 @@ Client never receives or uses the Google Places API key directly.
 | Method | Path | Purpose |
 |-------|------|---------|
 | GET | `/health` | Service health/status |
+| GET | `/llms.txt` | LLM-facing project summary (`/llm.txt` alias) |
+| GET | `/api/dev/logs` | Dev-only: read configured log files (requires `X-Master-API-Key`) |
+| POST | `/api/dev/admin/delete-all-records` | Dev-only: delete all rows from core tables (requires `X-Master-API-Key`, destructive) |
 | POST | `/api/users/create` | Create user with backend-generated `user_id` |
 | POST | `/api/users/upsert` | Create/update user record |
 | GET | `/api/users/{user_id}` | Fetch user record |
