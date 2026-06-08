@@ -28,6 +28,12 @@ class Settings:
     dev_log_root_dir: str
     dev_log_max_bytes: int
     dev_log_max_lines: int
+    google_client_id: str
+    jwt_secret_key: str
+    jwt_expiry_hours: int
+    dev_login_enabled: bool
+    dev_login_master_key: str
+    cors_allowed_origins: list[str]
 
 
 def _required(name: str) -> str:
@@ -49,6 +55,15 @@ def _optional_positive_int(name: str, default: str) -> int:
     if value <= 0:
         raise RuntimeError(f"Environment variable {name} must be > 0")
     return value
+
+
+def _optional_bool(name: str, default: str) -> bool:
+    return _optional(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+def _optional_csv(name: str, default: str) -> list[str]:
+    raw = _optional(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def _database_url() -> str:
@@ -94,4 +109,10 @@ settings = Settings(
     dev_log_root_dir=_optional("DEV_LOG_ROOT_DIR", "/var/log"),
     dev_log_max_bytes=_optional_positive_int("DEV_LOG_MAX_BYTES", "131072"),
     dev_log_max_lines=_optional_positive_int("DEV_LOG_MAX_LINES", "400"),
+    google_client_id=_required("GOOGLE_CLIENT_ID"),
+    jwt_secret_key=_required("JWT_SECRET_KEY"),
+    jwt_expiry_hours=_optional_positive_int("JWT_EXPIRY_HOURS", "168"),
+    dev_login_enabled=_optional_bool("DEV_LOGIN_ENABLED", "false"),
+    dev_login_master_key=_optional("DEV_LOGIN_MASTER_KEY", ""),
+    cors_allowed_origins=_optional_csv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"),
 )

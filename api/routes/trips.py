@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from services.auth import get_current_user_id
 from services.models import (
     TripCreateRequest,
     TripRecord,
@@ -26,10 +27,12 @@ router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 
 @router.post("", response_model=TripRecord)
-async def create_trip_route(payload: TripCreateRequest, request: Request) -> TripRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/trips", user_id=payload.owner_user_id)
+async def create_trip_route(
+    payload: TripCreateRequest, request: Request, user_id: str = Depends(get_current_user_id)
+) -> TripRecord:
+    await enforce_rate_limit(request=request, endpoint="/api/trips", user_id=user_id)
     doc = await create_trip(
-        owner_user_id=payload.owner_user_id,
+        owner_user_id=user_id,
         trip_name=payload.trip_name,
         location=payload.location,
         start_date=payload.start_date,
@@ -39,24 +42,29 @@ async def create_trip_route(payload: TripCreateRequest, request: Request) -> Tri
 
 
 @router.get("", response_model=list[TripRecord])
-async def list_trips_route(owner_user_id: str, request: Request) -> list[TripRecord]:
+async def list_trips_route(request: Request, owner_user_id: str = Depends(get_current_user_id)) -> list[TripRecord]:
     await enforce_rate_limit(request=request, endpoint="/api/trips", user_id=owner_user_id)
     docs = await list_trips(owner_user_id)
     return [TripRecord(**doc) for doc in docs]
 
 
 @router.get("/{trip_id}", response_model=TripRecord)
-async def get_trip_route(trip_id: str, request: Request) -> TripRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=None)
+async def get_trip_route(trip_id: str, request: Request, user_id: str = Depends(get_current_user_id)) -> TripRecord:
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=user_id)
     doc = await get_trip(trip_id)
-    if doc is None:
+    if doc is None or doc["owner_user_id"] != user_id:
         raise HTTPException(status_code=404, detail="Trip not found")
     return TripRecord(**doc)
 
 
 @router.patch("/{trip_id}", response_model=TripRecord)
-async def update_trip_route(trip_id: str, payload: TripUpdateRequest, request: Request) -> TripRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=None)
+async def update_trip_route(
+    trip_id: str, payload: TripUpdateRequest, request: Request, user_id: str = Depends(get_current_user_id)
+) -> TripRecord:
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=user_id)
+    existing = await get_trip(trip_id)
+    if existing is None or existing["owner_user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Trip not found")
     fields = payload.model_dump(exclude_unset=True)
     doc = await update_trip(trip_id, fields)
     if doc is None:
@@ -65,8 +73,13 @@ async def update_trip_route(trip_id: str, payload: TripUpdateRequest, request: R
 
 
 @router.delete("/{trip_id}")
-async def delete_trip_route(trip_id: str, request: Request) -> dict[str, bool]:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=None)
+async def delete_trip_route(
+    trip_id: str, request: Request, user_id: str = Depends(get_current_user_id)
+) -> dict[str, bool]:
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}", user_id=user_id)
+    existing = await get_trip(trip_id)
+    if existing is None or existing["owner_user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Trip not found")
     deleted = await delete_trip(trip_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -75,15 +88,18 @@ async def delete_trip_route(trip_id: str, request: Request) -> dict[str, bool]:
 
 @router.post("/{trip_id}/shares", response_model=TripShareRecord)
 async def create_trip_share_route(
-    trip_id: str, payload: TripShareCreateRequest, request: Request
+    trip_id: str, payload: TripShareCreateRequest, request: Request, user_id: str = Depends(get_current_user_id)
 ) -> TripShareRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares", user_id=payload.shared_by_user_id)
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares", user_id=user_id)
     if payload.trip_id != trip_id:
         raise HTTPException(status_code=400, detail="trip_id in path and body must match")
+    trip = await get_trip(trip_id)
+    if trip is None or trip["owner_user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Trip not found")
     doc = await create_trip_share(
         trip_id=payload.trip_id,
         shared_with_user_id=payload.shared_with_user_id,
-        shared_by_user_id=payload.shared_by_user_id,
+        shared_by_user_id=user_id,
         can_view=payload.can_view,
         can_add=payload.can_add,
         can_delete=payload.can_delete,
@@ -94,17 +110,23 @@ async def create_trip_share_route(
 
 
 @router.get("/{trip_id}/shares", response_model=list[TripShareRecord])
-async def list_trip_shares_route(trip_id: str, request: Request) -> list[TripShareRecord]:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares", user_id=None)
+async def list_trip_shares_route(
+    trip_id: str, request: Request, user_id: str = Depends(get_current_user_id)
+) -> list[TripShareRecord]:
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares", user_id=user_id)
     docs = await list_trip_shares(trip_id)
     return [TripShareRecord(**doc) for doc in docs]
 
 
 @router.patch("/{trip_id}/shares/{share_id}", response_model=TripShareRecord)
 async def update_trip_share_route(
-    trip_id: str, share_id: int, payload: TripShareUpdateRequest, request: Request
+    trip_id: str,
+    share_id: int,
+    payload: TripShareUpdateRequest,
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
 ) -> TripShareRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares/{share_id}", user_id=None)
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares/{share_id}", user_id=user_id)
     fields = payload.model_dump(exclude_unset=True)
     doc = await update_trip_share(share_id, fields)
     if doc is None or doc["trip_id"] != trip_id:
@@ -113,8 +135,10 @@ async def update_trip_share_route(
 
 
 @router.delete("/{trip_id}/shares/{share_id}")
-async def delete_trip_share_route(trip_id: str, share_id: int, request: Request) -> dict[str, bool]:
-    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares/{share_id}", user_id=None)
+async def delete_trip_share_route(
+    trip_id: str, share_id: int, request: Request, user_id: str = Depends(get_current_user_id)
+) -> dict[str, bool]:
+    await enforce_rate_limit(request=request, endpoint="/api/trips/{trip_id}/shares/{share_id}", user_id=user_id)
     deleted = await delete_trip_share(share_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Trip share not found")

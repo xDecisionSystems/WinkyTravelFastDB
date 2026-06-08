@@ -12,23 +12,27 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class UserUpsertRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
-    email: str | None = Field(default=None, max_length=320)
-    name: str | None = Field(default=None, max_length=160)
-
-
-class UserCreateRequest(BaseModel):
-    email: str | None = Field(default=None, max_length=320)
-    name: str | None = Field(default=None, max_length=160)
-
-
 class UserRecord(BaseModel):
     user_id: str
     email: str | None = None
     name: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(min_length=1)
+
+
+class DevLoginRequest(BaseModel):
+    master_key: str = Field(min_length=1)
+    email: str | None = Field(default=None, max_length=320)
+    name: str | None = Field(default=None, max_length=160)
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserRecord
 
 
 class PlaceAutocompleteRequest(BaseModel):
@@ -91,7 +95,6 @@ class Attachment(BaseModel):
 
 
 class TripCreateRequest(BaseModel):
-    owner_user_id: str = Field(min_length=1, max_length=128)
     trip_name: str = Field(min_length=1, max_length=200)
     location: str = Field(min_length=1, max_length=200)
     start_date: date_type
@@ -119,7 +122,6 @@ class TripRecord(BaseModel):
 class TripShareCreateRequest(BaseModel):
     trip_id: str = Field(min_length=1, max_length=64)
     shared_with_user_id: str = Field(min_length=1, max_length=128)
-    shared_by_user_id: str = Field(min_length=1, max_length=128)
     can_view: bool = True
     can_add: bool = False
     can_delete: bool = False
@@ -150,7 +152,6 @@ class TripShareRecord(BaseModel):
 
 
 class ActivityCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     trip_id: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=200)
     type: str = Field(min_length=1, max_length=64)
@@ -194,7 +195,6 @@ class ActivityRecord(BaseModel):
 
 
 class TravelCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     trip_id: str | None = Field(default=None, max_length=64)
     type: str = Field(min_length=1, max_length=64)
     departure: str = Field(min_length=1, max_length=200)
@@ -235,7 +235,6 @@ class TravelRecord(BaseModel):
 
 
 class HotelCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     trip_id: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=200)
     address: str = Field(min_length=1, max_length=400)
@@ -273,7 +272,6 @@ class HotelRecord(BaseModel):
 
 
 class TransitCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     trip_id: str | None = Field(default=None, max_length=64)
     type: str = Field(min_length=1, max_length=64)
     from_location: str = Field(default="", max_length=200)
@@ -305,7 +303,6 @@ class TransitRecord(BaseModel):
 
 
 class ScheduleItemCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     trip_id: str = Field(min_length=1, max_length=64)
     day_date: date_type
     display_order: int = Field(default=0, ge=0)
@@ -333,7 +330,6 @@ class ScheduleItemRecord(BaseModel):
 
 
 class CustomActivityTypeCreateRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=120)
     icon: str = Field(min_length=1, max_length=120)
     is_default: bool = False
@@ -356,7 +352,6 @@ class CustomActivityTypeRecord(BaseModel):
 
 
 class ActivityIconOverrideUpsertRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
     activity_type_id: str = Field(min_length=1, max_length=120)
     icon: str = Field(min_length=1, max_length=120)
 

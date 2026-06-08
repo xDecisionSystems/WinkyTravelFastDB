@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from services.auth import get_current_user_id
 from services.models import (
     ActivityIconOverrideRecord,
     ActivityIconOverrideUpsertRequest,
@@ -11,6 +12,7 @@ from services.postgres import (
     create_custom_activity_type,
     delete_activity_icon_override,
     delete_custom_activity_type,
+    get_custom_activity_type,
     list_activity_icon_overrides,
     list_custom_activity_types,
     update_custom_activity_type,
@@ -24,11 +26,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 @router.post("/custom-activity-types", response_model=CustomActivityTypeRecord)
 async def create_custom_activity_type_route(
-    payload: CustomActivityTypeCreateRequest, request: Request
+    payload: CustomActivityTypeCreateRequest, request: Request, user_id: str = Depends(get_current_user_id)
 ) -> CustomActivityTypeRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types", user_id=payload.user_id)
+    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types", user_id=user_id)
     doc = await create_custom_activity_type(
-        user_id=payload.user_id,
+        user_id=user_id,
         name=payload.name,
         icon=payload.icon,
         is_default=payload.is_default,
@@ -37,7 +39,9 @@ async def create_custom_activity_type_route(
 
 
 @router.get("/custom-activity-types", response_model=list[CustomActivityTypeRecord])
-async def list_custom_activity_types_route(request: Request, user_id: str) -> list[CustomActivityTypeRecord]:
+async def list_custom_activity_types_route(
+    request: Request, user_id: str = Depends(get_current_user_id)
+) -> list[CustomActivityTypeRecord]:
     await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types", user_id=user_id)
     docs = await list_custom_activity_types(user_id)
     return [CustomActivityTypeRecord(**doc) for doc in docs]
@@ -45,9 +49,12 @@ async def list_custom_activity_types_route(request: Request, user_id: str) -> li
 
 @router.patch("/custom-activity-types/{type_id}", response_model=CustomActivityTypeRecord)
 async def update_custom_activity_type_route(
-    type_id: str, payload: CustomActivityTypeUpdateRequest, request: Request
+    type_id: str, payload: CustomActivityTypeUpdateRequest, request: Request, user_id: str = Depends(get_current_user_id)
 ) -> CustomActivityTypeRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types/{type_id}", user_id=None)
+    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types/{type_id}", user_id=user_id)
+    existing = await get_custom_activity_type(type_id)
+    if existing is None or existing["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Custom activity type not found")
     fields = payload.model_dump(exclude_unset=True)
     doc = await update_custom_activity_type(type_id, fields)
     if doc is None:
@@ -56,8 +63,13 @@ async def update_custom_activity_type_route(
 
 
 @router.delete("/custom-activity-types/{type_id}")
-async def delete_custom_activity_type_route(type_id: str, request: Request) -> dict[str, bool]:
-    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types/{type_id}", user_id=None)
+async def delete_custom_activity_type_route(
+    type_id: str, request: Request, user_id: str = Depends(get_current_user_id)
+) -> dict[str, bool]:
+    await enforce_rate_limit(request=request, endpoint="/api/settings/custom-activity-types/{type_id}", user_id=user_id)
+    existing = await get_custom_activity_type(type_id)
+    if existing is None or existing["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Custom activity type not found")
     deleted = await delete_custom_activity_type(type_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Custom activity type not found")
@@ -66,11 +78,11 @@ async def delete_custom_activity_type_route(type_id: str, request: Request) -> d
 
 @router.put("/icon-overrides", response_model=ActivityIconOverrideRecord)
 async def upsert_activity_icon_override_route(
-    payload: ActivityIconOverrideUpsertRequest, request: Request
+    payload: ActivityIconOverrideUpsertRequest, request: Request, user_id: str = Depends(get_current_user_id)
 ) -> ActivityIconOverrideRecord:
-    await enforce_rate_limit(request=request, endpoint="/api/settings/icon-overrides", user_id=payload.user_id)
+    await enforce_rate_limit(request=request, endpoint="/api/settings/icon-overrides", user_id=user_id)
     doc = await upsert_activity_icon_override(
-        user_id=payload.user_id,
+        user_id=user_id,
         activity_type_id=payload.activity_type_id,
         icon=payload.icon,
     )
@@ -78,14 +90,18 @@ async def upsert_activity_icon_override_route(
 
 
 @router.get("/icon-overrides", response_model=list[ActivityIconOverrideRecord])
-async def list_activity_icon_overrides_route(request: Request, user_id: str) -> list[ActivityIconOverrideRecord]:
+async def list_activity_icon_overrides_route(
+    request: Request, user_id: str = Depends(get_current_user_id)
+) -> list[ActivityIconOverrideRecord]:
     await enforce_rate_limit(request=request, endpoint="/api/settings/icon-overrides", user_id=user_id)
     docs = await list_activity_icon_overrides(user_id)
     return [ActivityIconOverrideRecord(**doc) for doc in docs]
 
 
 @router.delete("/icon-overrides/{activity_type_id}")
-async def delete_activity_icon_override_route(activity_type_id: str, user_id: str, request: Request) -> dict[str, bool]:
+async def delete_activity_icon_override_route(
+    activity_type_id: str, request: Request, user_id: str = Depends(get_current_user_id)
+) -> dict[str, bool]:
     await enforce_rate_limit(request=request, endpoint="/api/settings/icon-overrides/{activity_type_id}", user_id=user_id)
     deleted = await delete_activity_icon_override(user_id=user_id, activity_type_id=activity_type_id)
     if not deleted:

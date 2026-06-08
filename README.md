@@ -4,8 +4,9 @@ FastAPI + PostgreSQL backend for Winky Travel.
 
 ## What this service does
 
-- Persists app users in PostgreSQL.
-- Provides full CRUD REST endpoints for WinkyTravelDev domain entities: `trips`, `activities`, `travels`, `hotels`, `transits`, `schedule_items`, plus trip sharing and per-user settings (`custom_activity_types`, `activity_icon_overrides`).
+- Authenticates users via Google Sign-In and issues backend session JWTs (see "Authentication").
+- Persists app users in PostgreSQL, keyed on their verified Google identity.
+- Provides full CRUD REST endpoints for WinkyTravelDev domain entities: `trips`, `activities`, `travels`, `hotels`, `transits`, `schedule_items`, plus trip sharing and per-user settings (`custom_activity_types`, `activity_icon_overrides`). Every entity route requires a valid session JWT and is scoped to the authenticated user.
 - Includes trip sharing with per-user permissions (`owner`, `view`, `add`, `delete`, `edit`).
 - Proxies Google Places autocomplete/details requests so API keys remain server-side.
 - Logs per-user Google Places usage events for tracking and analytics.
@@ -33,6 +34,49 @@ Schema reference: see `SCHEMA.md`.
    ```bash
    curl http://127.0.0.1:8000/health
    ```
+
+## Authentication
+
+All trip-planning domain routes require a session token issued by this service. There is no
+anonymous access — clients must sign in before calling any `/api/trips`, `/api/activities`,
+`/api/settings/*`, etc. endpoint.
+
+Flow:
+
+1. The frontend obtains a Google ID token via Google Sign-In and posts it to
+   `POST /api/auth/google` (`{ "id_token": "<google-id-token>" }`). The backend verifies the
+   token's signature and audience against `GOOGLE_CLIENT_ID`, creates or looks up the user by
+   their Google `sub`, and returns `{ "token": "<jwt>", "user": { ... } }`.
+2. The frontend sends that JWT on every subsequent request as `Authorization: Bearer <jwt>`.
+3. `GET /api/auth/me` returns the authenticated user's record — useful for restoring a session
+   after a page reload.
+
+Configured via environment variables:
+
+- `GOOGLE_CLIENT_ID` (required) — OAuth client ID; the backend rejects ID tokens issued for any
+  other audience.
+- `JWT_SECRET_KEY` (required) — symmetric (HS256) signing secret for backend-issued session JWTs.
+  Use a long random value and keep it secret.
+- `JWT_EXPIRY_HOURS` (default `168`) — session token lifetime.
+- `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173,http://127.0.0.1:5173`) — comma-separated
+  list of allowed frontend origins.
+
+### Dev-only login (test/CI accounts)
+
+`POST /api/auth/dev-login` issues a session JWT in the same shape as the Google flow, without
+requiring a Google account. It is intended only for automated testing and local development.
+
+- Disabled by default; only reachable (returns `404` otherwise) when `DEV_LOGIN_ENABLED=true`.
+- Requires `{ "master_key": "<DEV_LOGIN_MASTER_KEY>", "email": "...", "name": "..." }` in the
+  request body — `email`/`name` are optional and default to a fixed dev account identity.
+- **Must remain disabled in production.** Set `DEV_LOGIN_ENABLED=false` (the default) and leave
+  `DEV_LOGIN_MASTER_KEY` unset/empty for any production or shared deployment.
+
+Configured via environment variables:
+
+- `DEV_LOGIN_ENABLED` (default `false`)
+- `DEV_LOGIN_MASTER_KEY` (default empty — the endpoint always rejects requests when empty, even
+  if `DEV_LOGIN_ENABLED=true`)
 
 ## Abuse protection configuration
 
@@ -62,9 +106,9 @@ Legacy `DATABASE_URL` is still accepted for backward compatibility.
 
 - `GET /health`
 - `GET /llms.txt` (`GET /llm.txt` alias)
-- `POST /api/users/create`
-- `POST /api/users/upsert`
-- `GET /api/users/{user_id}`
+- `POST /api/auth/google` (sign in with a Google ID token, returns `{ token, user }`)
+- `POST /api/auth/dev-login` (dev-only test-account login, returns `{ token, user }`)
+- `GET /api/auth/me` (current authenticated user; requires `Authorization: Bearer <jwt>`)
 - `POST /api/places/autocomplete`
 - `POST /api/places/details`
 - `GET /api/dev/logs?path=<relative-log-path>&lines=200` (dev-only, master key required)
@@ -72,10 +116,12 @@ Legacy `DATABASE_URL` is still accepted for backward compatibility.
 
 ### Trip-planning domain CRUD
 
-Each resource follows the same REST shape: `POST` (create), `GET` (list, filtered by
-`user_id`/`owner_user_id` and optionally `trip_id`), `GET /{id}` (read one),
-`PATCH /{id}` (partial update), `DELETE /{id}` (delete). All are rate limited like
-other endpoints.
+Each resource follows the same REST shape: `POST` (create), `GET` (list, scoped to the
+authenticated user and optionally filtered by `trip_id`), `GET /{id}` (read one),
+`PATCH /{id}` (partial update), `DELETE /{id}` (delete). Every route requires
+`Authorization: Bearer <jwt>`; the user identity comes from the verified token, never from the
+request body or query string, and `GET/PATCH/DELETE /{id}` return `404` for records owned by a
+different user (so existence isn't leaked). All are rate limited like other endpoints.
 
 - `/api/trips` and `/api/trips/{trip_id}/shares` (trip sharing sub-resource)
 - `/api/activities`
@@ -84,7 +130,7 @@ other endpoints.
 - `/api/transits`
 - `/api/schedule-items` (list requires `trip_id`, optional `day_date` filter)
 - `/api/settings/custom-activity-types`
-- `/api/settings/icon-overrides` (`PUT` to upsert, `GET`/`DELETE` keyed by `user_id` + `activity_type_id`)
+- `/api/settings/icon-overrides` (`PUT` to upsert, `GET`/`DELETE` keyed by the authenticated user + `activity_type_id`)
 
 See `ARCHITECTURE.md` for the full endpoint map and request/response contracts.
 
@@ -127,11 +173,10 @@ curl -sS -X POST \
 
 ## Recommended next fixes
 
-1. Add real authentication/authorization and stop trusting client-supplied `user_id` directly.
-2. Replace wildcard CORS with an explicit origin allowlist for your frontend domains.
-3. Trust proxy headers safely (`X-Forwarded-For`) only from known reverse proxies so IP rate limiting is accurate in production.
-4. Harden Places upstream failure handling by catching timeouts/network errors and non-JSON error bodies, then returning stable `502/504` responses.
-5. Add automated tests for rate limiting and abuse logging paths (allow, block, and boundary behavior across second/hour/day windows).
+1. Trust proxy headers safely (`X-Forwarded-For`) only from known reverse proxies so IP rate limiting is accurate in production.
+2. Harden Places upstream failure handling by catching timeouts/network errors and non-JSON error bodies, then returning stable `502/504` responses.
+3. Add automated tests for rate limiting, abuse logging, and the new auth paths (Google login, dev login gating, JWT expiry/invalidation, ownership checks on protected routes).
+4. Implement trip-share-aware authorization on trip/entity routes (currently only direct ownership is checked; shared collaborators cannot yet view/edit shared trips through the API).
 
 ## Deployment scripts
 

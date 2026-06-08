@@ -38,6 +38,28 @@ async def _create_schema(conn: asyncpg.Connection) -> None:
         )
         """
     )
+    # One-time breaking migration: anonymous device-identity users are replaced
+    # by Google-authenticated accounts. Old anonymous rows have no verifiable
+    # real-world identity, so they (and everything that cascades from them) are
+    # discarded rather than migrated.
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'users'
+                  AND column_name = 'google_sub'
+            ) THEN
+                ALTER TABLE users ADD COLUMN google_sub TEXT;
+                TRUNCATE TABLE users CASCADE;
+                ALTER TABLE users ADD CONSTRAINT users_google_sub_key UNIQUE (google_sub);
+            END IF;
+        END $$;
+        """
+    )
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS usage_logs (
@@ -425,7 +447,53 @@ async def close() -> None:
     _pool = None
 
 
-async def upsert_user(user_id: str, email: str | None, name: str | None) -> dict[str, Any]:
+_USER_COLUMNS = "user_id, email, name, created_at, updated_at"
+
+
+async def get_user(user_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT {_USER_COLUMNS} FROM users WHERE user_id = $1",
+            user_id,
+        )
+    return dict(row) if row is not None else None
+
+
+async def upsert_user_by_google_sub(google_sub: str, email: str | None, name: str | None) -> dict[str, Any]:
+    """Create or update a user keyed on their verified Google subject id.
+
+    The user_id is derived deterministically from google_sub on first sign-in
+    so the same Google account always maps to the same backend user row.
+    """
+    now = utcnow()
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO users (user_id, email, name, google_sub, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (google_sub)
+            DO UPDATE
+            SET email = COALESCE(EXCLUDED.email, users.email),
+                name = COALESCE(EXCLUDED.name, users.name),
+                updated_at = EXCLUDED.updated_at
+            RETURNING user_id, email, name, created_at, updated_at
+            """,
+            f"google:{google_sub}",
+            email,
+            name,
+            google_sub,
+            now,
+        )
+
+    if row is None:
+        raise RuntimeError("Failed to load user after upsert")
+    return dict(row)
+
+
+async def upsert_dev_user(user_id: str, email: str | None, name: str | None) -> dict[str, Any]:
+    """Create or update a deterministic dev/test account (no Google identity)."""
     now = utcnow()
     pool = _pool_or_raise()
     async with pool.acquire() as conn:
@@ -449,40 +517,6 @@ async def upsert_user(user_id: str, email: str | None, name: str | None) -> dict
     if row is None:
         raise RuntimeError("Failed to load user after upsert")
     return dict(row)
-
-
-async def get_user(user_id: str) -> dict[str, Any] | None:
-    pool = _pool_or_raise()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT user_id, email, name, created_at, updated_at FROM users WHERE user_id = $1",
-            user_id,
-        )
-    return dict(row) if row is not None else None
-
-
-async def create_user(email: str | None, name: str | None) -> dict[str, Any]:
-    pool = _pool_or_raise()
-    async with pool.acquire() as conn:
-        for _ in range(5):
-            generated_user_id = str(uuid.uuid4())
-            now = utcnow()
-            row = await conn.fetchrow(
-                """
-                INSERT INTO users (user_id, email, name, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $4)
-                ON CONFLICT (user_id) DO NOTHING
-                RETURNING user_id, email, name, created_at, updated_at
-                """,
-                generated_user_id,
-                email,
-                name,
-                now,
-            )
-            if row is not None:
-                return dict(row)
-
-    raise RuntimeError("Failed to create user after retries")
 
 
 async def insert_usage_log(
@@ -1492,6 +1526,20 @@ async def list_custom_activity_types(user_id: str) -> list[dict[str, Any]]:
             user_id,
         )
     return [dict(row) for row in rows]
+
+
+async def get_custom_activity_type(type_id: str) -> dict[str, Any] | None:
+    pool = _pool_or_raise()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, name, icon, is_default, created_at, updated_at
+            FROM custom_activity_types
+            WHERE id = $1
+            """,
+            type_id,
+        )
+    return dict(row) if row is not None else None
 
 
 async def update_custom_activity_type(type_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:

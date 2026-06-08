@@ -36,18 +36,40 @@ Client never receives or uses the Google Places API key directly.
 3. Store usage log for auditing and analytics.
 4. Return upstream JSON (or upstream error).
 
-### `POST /api/users/upsert`
+### `POST /api/auth/google`
 
-1. Validate payload (`user_id`, optional `email`, `name`).
-2. Upsert user record by `user_id`.
-3. Set `created_at` on insert and `updated_at` on every write.
+1. Validate payload (`id_token`).
+2. Verify the Google ID token's signature and audience against `GOOGLE_CLIENT_ID`
+   (`google.oauth2.id_token.verify_oauth2_token`); reject invalid/expired/wrong-audience
+   tokens with `401`.
+3. Derive a deterministic `user_id = "google:{sub}"` and upsert the user record by
+   `google_sub`, refreshing `email`/`name` from the verified profile.
+4. Issue an HS256 session JWT (`issue_session_jwt`, claims `sub`/`iat`/`exp`, expiry from
+   `JWT_EXPIRY_HOURS`) and return `{ token, user }`.
 
-### `POST /api/users/create`
+### `POST /api/auth/dev-login`
 
-1. Validate optional profile payload (`email`, `name`).
-2. Generate a backend `user_id` (UUID).
-3. Insert user record with generated ID and timestamps.
-4. Return created user record.
+1. Return `404` unless `DEV_LOGIN_ENABLED=true`.
+2. Validate payload (`master_key`, optional `email`/`name`); compare `master_key`
+   against `DEV_LOGIN_MASTER_KEY` with `hmac.compare_digest` (constant-time).
+3. Derive a deterministic `user_id = "dev:" + sha256(email)[:32]` and upsert the user.
+4. Issue and return a session JWT in the **same** `{ token, user }` shape as the Google
+   flow — intended only for automated testing/local development; must stay disabled in
+   production (`DEV_LOGIN_ENABLED=false`, `DEV_LOGIN_MASTER_KEY` unset).
+
+### `GET /api/auth/me`
+
+1. Resolve `user_id` via the `get_current_user_id` dependency (validates the bearer JWT).
+2. Fetch and return the user record — used by the frontend to restore a session on reload.
+
+### Session validation (`get_current_user_id` dependency)
+
+Applied to every protected route (`/api/auth/me` and all trip-planning domain CRUD).
+Reads `Authorization: Bearer <jwt>`, decodes/validates it via `decode_session_jwt`
+(HS256, `JWT_SECRET_KEY`), and returns the embedded `user_id`. Raises `401` on a
+missing, malformed, expired, or invalid-signature token. The resulting `user_id` is
+the **only** source of identity for these routes — client-supplied `user_id`/
+`owner_user_id` values in the request body or query string are never read or trusted.
 
 ## 4. Endpoint Map
 
@@ -57,9 +79,9 @@ Client never receives or uses the Google Places API key directly.
 | GET | `/llms.txt` | LLM-facing project summary (`/llm.txt` alias) |
 | GET | `/api/dev/logs` | Dev-only: read configured log files (requires `X-Master-API-Key`) |
 | POST | `/api/dev/admin/delete-all-records` | Dev-only: delete all rows from core tables (requires `X-Master-API-Key`, destructive) |
-| POST | `/api/users/create` | Create user with backend-generated `user_id` |
-| POST | `/api/users/upsert` | Create/update user record |
-| GET | `/api/users/{user_id}` | Fetch user record |
+| POST | `/api/auth/google` | Verify a Google ID token, upsert the user, issue a session JWT |
+| POST | `/api/auth/dev-login` | Dev/test-only login (env-gated), issues a session JWT in the same shape as Google login |
+| GET | `/api/auth/me` | Fetch the authenticated user's record from the bearer token |
 | POST | `/api/places/autocomplete` | Google Places autocomplete proxy |
 | POST | `/api/places/details` | Google place details proxy |
 | POST | `/api/trips` | Create trip |
@@ -81,9 +103,14 @@ Client never receives or uses the Google Places API key directly.
 
 ### Trip-domain CRUD conventions
 
-- All list endpoints require an owning identifier (`user_id` or `owner_user_id`) as a
-  query parameter; activities/travels/hotels/transits accept an optional `trip_id`
-  filter, and schedule items require `trip_id` (with optional `day_date`).
+- Identity is derived **exclusively** from the validated session JWT via the
+  `get_current_user_id` dependency — no route reads or trusts a client-supplied
+  `user_id`/`owner_user_id` from the request body or query string. List endpoints no
+  longer take an owning-identifier query parameter; activities/travels/hotels/transits
+  still accept an optional `trip_id` filter, and schedule items still require `trip_id`
+  (with optional `day_date`).
+- `GET/PATCH/DELETE /{id}` routes return `404` (not `403`) when the record exists but
+  is not owned by the authenticated user, to avoid leaking record existence.
 - `PATCH` requests use partial-update semantics (`exclude_unset`): omitted fields are
   left unchanged.
 - `attachments` fields are JSON arrays of `{ name, type, data }` base64 data-URL
@@ -92,15 +119,18 @@ Client never receives or uses the Google Places API key directly.
   data URL whose declared MIME matches `type`, individual attachment data is capped
   at ~5 MB (7,000,000 base64 characters), and each record may hold at most 10
   attachments. Requests violating these constraints are rejected with `422`.
-- Every route enforces the same per-second/hour/day rate limiting as existing endpoints.
-- Records reference `owner_user_id`/`user_id` via foreign keys to `users`; creating a
-  trip or domain record for an unknown user returns a database foreign-key error.
+- Every route enforces the same per-second/hour/day rate limiting as existing
+  endpoints, keyed off the JWT-derived `user_id`.
+- Records reference `owner_user_id`/`user_id` via foreign keys to `users`; these are
+  always populated from the verified session identity, so a foreign-key error against
+  an unknown user is no longer reachable through normal use.
 
 ## 5. Data Model
 
 ### `users` table
 
-- `user_id` (unique)
+- `user_id` (unique) — `"google:{sub}"` for Google accounts, `"dev:{hash}"` for dev-login accounts
+- `google_sub` (unique, optional) — Google's stable subject identifier; the verified real-world identity for Google accounts
 - `email` (optional)
 - `name` (optional)
 - `created_at`
@@ -261,6 +291,12 @@ Loaded from `.env` via `config/settings.py`.
 | `GOOGLE_MAPS_API_KEY` | recommended | empty | Server-side Places key |
 | `GOOGLE_PLACES_BASE_URL` | no | `https://places.googleapis.com/v1` | Places base URL |
 | `GOOGLE_TIMEOUT_SECONDS` | no | `8` | Upstream request timeout |
+| `GOOGLE_CLIENT_ID` | yes | none | OAuth client ID; verified ID tokens must carry this audience |
+| `JWT_SECRET_KEY` | yes | none | Symmetric (HS256) signing secret for backend-issued session JWTs |
+| `JWT_EXPIRY_HOURS` | no | `168` | Session JWT lifetime in hours |
+| `CORS_ALLOWED_ORIGINS` | yes | none | Comma-separated explicit origin allowlist (replaces wildcard CORS now that bearer tokens are in play) |
+| `DEV_LOGIN_ENABLED` | no | `false` | Enables `POST /api/auth/dev-login`; must stay `false` in production |
+| `DEV_LOGIN_MASTER_KEY` | no | empty | Shared secret required by the dev-login endpoint when enabled |
 | `ENVIRONMENT` | no | `development` | Environment tag |
 | `SERVICE_NAME` | no | `winky-travel-fastdb` | Service label |
 
