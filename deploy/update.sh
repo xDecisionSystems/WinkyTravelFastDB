@@ -94,8 +94,18 @@ maybe_recreate_database() {
     return 0
   fi
 
+  # Prevent app reconnect loops while we forcibly drop the DB.
+  log "Stopping ${SERVICE_NAME} before database recreation ..."
+  systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+
   log "Recreating SQL database '${DB_NAME}' owned by '${DB_USER}' ..."
-  runuser -u postgres -- dropdb --if-exists "${DB_NAME}"
+  if ! runuser -u postgres -- dropdb --if-exists --force "${DB_NAME}"; then
+    log "dropdb --force failed; terminating active DB sessions manually ..."
+    runuser -u postgres -- psql -d postgres -v ON_ERROR_STOP=1 -v dbname="${DB_NAME}" \
+      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :'dbname' AND pid <> pg_backend_pid();" \
+      >/dev/null
+    runuser -u postgres -- dropdb --if-exists "${DB_NAME}"
+  fi
   runuser -u postgres -- createdb --owner="${DB_USER}" "${DB_NAME}"
 }
 
