@@ -6,6 +6,25 @@ Archive to `history/YYYY-MM.md` when this file exceeds 200 lines (keep 10 most r
 
 ---
 
+## [2026-06-08] claude-sonnet-4-6 - rework Proxmox deploy script (multiplexed SSH, dry-run, .env sync, diagnostics)
+**Action:** Substantially reworked `deploy/proxmox_deploy.sh`, porting and adapting patterns from `fastLibrary`'s deploy script and fixing real failures hit during live deploys to a Proxmox host:
+- Added SSH `ControlMaster`/`ControlPath` connection multiplexing (`ssh_open`/`ssh_close`/`ssh_run`/`lxc_exec`) so the whole run reuses one authenticated connection, plus a `--dry-run` flag that echoes remote commands instead of executing them.
+- Added Debian LXC template auto-detection (`pveam`/`pvesm` query, sorted newest-first, interactive override) and made storage selection prefer pools with "ssd" in their name.
+- Hardcoded `REPO_URL`/`REPO_BRANCH` defaults (no longer prompted) and fixed `DNS` to default to `8.8.8.8`.
+- Added an `.env` upload picker (`--upload-env` / `UPLOAD_ENV_FILE`) that scans the working directory for `.env*` files, defaults to `.env.dev` when present, and uploads the chosen file as the container's runtime `.env` (falling back to `.env.example` from the repo when none is picked).
+- **Fixed a critical credential bug**: the script previously hardcoded `CREATE ROLE winky LOGIN PASSWORD 'change-this-password'` and `CREATE DATABASE winky_travel`, which never matched the `DB_PASSWORD`/`DB_NAME` actually shipped in the uploaded `.env` (e.g. `.env.dev` uses a generated password and `DB_NAME=winky_travel_dev`), causing `asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "winky"` at app startup. The script now reads `DB_USER`/`DB_PASSWORD`/`DB_NAME` out of the selected `UPLOAD_ENV_FILE` *before* provisioning PostgreSQL, SQL-escapes them, and uses them for `CREATE ROLE`/`CREATE DATABASE`/`OWNER`. Also added an `ALTER ROLE ... LOGIN PASSWORD` self-heal branch so re-running against an existing container corrects a stale password rather than leaving it mismatched.
+- Replaced fragile `$...$` SQL dollar-quoting (which `printf '%q'` was corrupting into garbage like `363winky363`) with single-quoted literals plus `''`-escaping.
+- Added health-check polling with `systemctl status`/`journalctl` diagnostics on failure, and a final summary block (health/docs URLs, dry-run banner, config vs. uploaded-env distinction).
+- Quieted `apt-get`/`pip install` output, only surfacing it (via a captured temp log) when a step actually fails.
+**Files changed:**
+- `deploy/proxmox_deploy.sh` - all changes above
+- `VERSION.md` - bumped to `winky-travel-fastdb-v0.2.2`
+- `AGENT_LOG.md` - prepended this entry
+**Decisions:** Deliberately did NOT add SSH deploy-key support for private-repo cloning (drafted it, then reverted at the user's request — they're making the GitHub repo public instead, so `REPO_URL` stays a plain HTTPS URL). Derived DB role/database identity from the uploaded `.env` rather than introducing new CLI flags, since the `.env` is already the single source of truth the running app reads from — keeping provisioning and runtime config self-consistent by construction.
+**Open items:** The container from earlier failed runs was provisioned with the old hardcoded `change-this-password`; re-running this script against the same VMID should self-heal it via the new `ALTER ROLE` branch, but this hasn't yet been confirmed against a live host.
+
+---
+
 ## [2026-06-07] claude-sonnet-4-6 - fix asyncpg build failure on Debian 13/Python 3.13 LXC deploys
 **Action:** Deploys to a freshly auto-provisioned Debian 13 ("trixie") LXC were failing during `pip install -r requirements.txt` with `Failed building wheel for asyncpg` (`_PyInterpreterState_GetConfig`, `_PyLong_AsByteArray too few arguments` — CPython internal API changes in 3.13). Root cause: `asyncpg==0.29.0` has no prebuilt `cp313` wheel, so pip fell back to compiling its Cython-based C extensions against an incompatible CPython ABI. Bumped the pin to `asyncpg==0.31.0`, which ships prebuilt `manylinux` `cp313` wheels (verified locally: installs via wheel, no compilation, imports cleanly).
 **Files changed:**

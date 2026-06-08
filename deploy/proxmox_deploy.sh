@@ -287,6 +287,18 @@ if [[ "${INTERACTIVE}" == "1" ]]; then
   fi
 fi
 
+DB_ROLE_NAME="winky"
+DB_ROLE_PASSWORD="change-this-password"
+DB_DATABASE_NAME="winky_travel"
+if [[ -n "${UPLOAD_ENV_FILE}" && -f "${UPLOAD_ENV_FILE}" ]]; then
+  env_db_user="$(grep -E '^DB_USER=' "${UPLOAD_ENV_FILE}" | tail -n1 | cut -d= -f2-)"
+  env_db_password="$(grep -E '^DB_PASSWORD=' "${UPLOAD_ENV_FILE}" | tail -n1 | cut -d= -f2-)"
+  env_db_name="$(grep -E '^DB_NAME=' "${UPLOAD_ENV_FILE}" | tail -n1 | cut -d= -f2-)"
+  [[ -n "${env_db_user}" ]] && DB_ROLE_NAME="${env_db_user}"
+  [[ -n "${env_db_password}" ]] && DB_ROLE_PASSWORD="${env_db_password}"
+  [[ -n "${env_db_name}" ]] && DB_DATABASE_NAME="${env_db_name}"
+fi
+
 [[ -n "${REPO_URL}" ]] || die "--repo-url is required"
 [[ -n "${TEMPLATE}" ]] || die "Unable to determine LXC template automatically. Set TEMPLATE in env or pass --template."
 [[ -n "${VMID}" ]] || die "Unable to determine VMID automatically. Set VMID in env or pass --vmid."
@@ -366,6 +378,9 @@ log "Waiting for LXC to be ready ..."
 ssh_run "sleep 6"
 
 log "Installing runtime packages in container ..."
+db_role_name_sql="${DB_ROLE_NAME//\'/\'\'}"
+db_role_password_sql="${DB_ROLE_PASSWORD//\'/\'\'}"
+db_database_name_sql="${DB_DATABASE_NAME//\'/\'\'}"
 lxc_exec "${VMID}" "
   set -euo pipefail
   export DEBIAN_FRONTEND=noninteractive
@@ -380,11 +395,13 @@ lxc_exec "${VMID}" "
   rm -f \"\$apt_log\"
   systemctl enable --now postgresql
 
-  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname = 'winky'\" | grep -q 1; then
-    runuser -u postgres -- psql -c \"CREATE ROLE winky LOGIN PASSWORD 'change-this-password'\"
+  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname = '${db_role_name_sql}'\" | grep -q 1; then
+    runuser -u postgres -- psql -c \"CREATE ROLE ${db_role_name_sql} LOGIN PASSWORD '${db_role_password_sql}'\"
+  else
+    runuser -u postgres -- psql -c \"ALTER ROLE ${db_role_name_sql} LOGIN PASSWORD '${db_role_password_sql}'\"
   fi
-  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_database WHERE datname = 'winky_travel'\" | grep -q 1; then
-    runuser -u postgres -- psql -c \"CREATE DATABASE winky_travel OWNER winky\"
+  if ! runuser -u postgres -- psql -tAc \"SELECT 1 FROM pg_database WHERE datname = '${db_database_name_sql}'\" | grep -q 1; then
+    runuser -u postgres -- psql -c \"CREATE DATABASE ${db_database_name_sql} OWNER ${db_role_name_sql}\"
   fi
 "
 
