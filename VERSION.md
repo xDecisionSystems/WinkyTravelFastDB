@@ -1,1 +1,1 @@
-VERSION_NAME=winky-travel-fastdb-v0.2.0
+VERSION_NAME=winky-travel-fastdb-v0.2.1

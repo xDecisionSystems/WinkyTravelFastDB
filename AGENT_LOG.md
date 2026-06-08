@@ -6,6 +6,17 @@ Archive to `history/YYYY-MM.md` when this file exceeds 200 lines (keep 10 most r
 
 ---
 
+## [2026-06-07] claude-sonnet-4-6 - fix asyncpg build failure on Debian 13/Python 3.13 LXC deploys
+**Action:** Deploys to a freshly auto-provisioned Debian 13 ("trixie") LXC were failing during `pip install -r requirements.txt` with `Failed building wheel for asyncpg` (`_PyInterpreterState_GetConfig`, `_PyLong_AsByteArray too few arguments` — CPython internal API changes in 3.13). Root cause: `asyncpg==0.29.0` has no prebuilt `cp313` wheel, so pip fell back to compiling its Cython-based C extensions against an incompatible CPython ABI. Bumped the pin to `asyncpg==0.31.0`, which ships prebuilt `manylinux` `cp313` wheels (verified locally: installs via wheel, no compilation, imports cleanly).
+**Files changed:**
+- `requirements.txt` - bumped `asyncpg` from `0.29.0` to `0.31.0`
+- `VERSION.md` - bumped to `winky-travel-fastdb-v0.2.1`
+- `AGENT_LOG.md` - prepended this entry
+**Decisions:** Picked `0.31.0` specifically because it's the earliest patch in the 0.3x line confirmed (via PyPI JSON API) to publish `cp313`-tagged wheels — avoids both the 3.13 build break and an unnecessary jump to a newer minor that might need wider regression testing.
+**Open items:** None for this fix. Separately, `deploy/proxmox_deploy.sh` was extended this session with SSH multiplexing, dry-run mode, health-check diagnostics, SSD-preferring storage selection, hardcoded repo URL/branch defaults, Debian template auto-detection, an `.env` upload picker (defaulting to `.env.dev`), and quieted apt/pip output — those changes are tracked in that file's own history, not duplicated here.
+
+---
+
 ## [2026-06-07] claude-sonnet-4-6 - add CRUD endpoints for trip-planning domain entities
 **Action:** Built out the previously-missing REST CRUD surface for the trip-planning domain tables that already existed in the schema (`trips`, `trip_shares`, `activities`, `travels`, `hotels`, `transits`, `schedule_items`, `custom_activity_types`, `activity_icon_overrides`). This closes the gap noted by `WinkyTravelDev` review: that app currently stores everything in browser `localStorage` because this backend had no domain endpoints to call (only `/api/users` and `/api/places` existed). Added pydantic request/record models, asyncpg-backed service functions following the existing `upsert_user`/`get_user` patterns (parameterized queries, `RETURNING`, `jsonb` handling for `attachments` via `json.dumps`/`json.loads`), and FastAPI routers with rate limiting on every route, mirroring `users.py`/`places.py` conventions. Wired all new routers into `api/main.py`.
 **Files changed:**
